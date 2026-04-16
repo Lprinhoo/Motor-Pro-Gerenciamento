@@ -26,9 +26,8 @@ import java.util.*;
 import java.util.List;
 
 public class Main extends JFrame {
-    // URL ATUALIZADA PARA O RAILWAY
-    private static final String BASE_URL = "https://SUA-URL-DO-RAILWAY.up.railway.app/api/";
-    private static final HttpClient client = HttpClient.newBuilder().connectTimeout(java.time.Duration.ofSeconds(10)).build();
+    private static final String BASE_URL = "https://teste-production-a485.up.railway.app/api/";
+    private static final HttpClient client = HttpClient.newBuilder().connectTimeout(java.time.Duration.ofSeconds(15)).build();
     private static final Gson gson = new Gson();
 
     private static final Color PRIMARY_GREEN = Color.decode("#16BC4E");
@@ -46,10 +45,9 @@ public class Main extends JFrame {
     private JPanel sidebarButtons;
     private JLabel lblStatus;
 
-    private String currentAccessKey = "DEMO-001"; 
+    private String workshopId = ""; // UUID gerado pelo servidor
     private String currentActiveTab = "VEÍCULOS";
     private Map<String, RefreshParams> tabRefreshMap = new HashMap<>();
-    private javax.swing.Timer autoRefreshTimer;
 
     private static class RefreshParams {
         String endpoint; DefaultTableModel model; String[] jsonKeys;
@@ -61,15 +59,14 @@ public class Main extends JFrame {
         setupWindow();
         masterLayout = new CardLayout();
         masterPanel = new JPanel(masterLayout);
-        
-        masterPanel.add(createLoginScreen(), "LOGIN");
+        masterPanel.add(createLaunchScreen(), "LAUNCH");
         add(masterPanel);
-        masterLayout.show(masterPanel, "LOGIN");
+        masterLayout.show(masterPanel, "LAUNCH");
         setVisible(true);
     }
 
     private void setupWindow() {
-        setTitle("Motor Pro | Admin Panel");
+        setTitle("Motor Pro | Management System");
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setExtendedState(JFrame.MAXIMIZED_BOTH);
         try {
@@ -78,40 +75,100 @@ public class Main extends JFrame {
         } catch (Exception ignored) {}
     }
 
-    private JPanel createLoginScreen() {
+    private JPanel createLaunchScreen() {
         JPanel container = new JPanel(new GridBagLayout());
         container.setBackground(SOLID_BLACK);
         JPanel card = new JPanel(); card.setLayout(new BoxLayout(card, BoxLayout.Y_AXIS)); card.setBackground(SOLID_BLACK);
         
-        // --- AVATAR MAIOR E CENTRALIZADO ---
-        JLabel avatar = new JLabel();
-        try {
-            InputStream is = getClass().getResourceAsStream("/assets/perfil.png");
-            if (is != null) avatar.setIcon(new ImageIcon(ImageIO.read(is).getScaledInstance(200, 200, Image.SCALE_SMOOTH))); // Aumentado
-        } catch (Exception ignored) {}
-        avatar.setAlignmentX(0.5f);
-        avatar.setBorder(new CompoundBorder(new LineBorder(PRIMARY_GREEN, 4, true), new EmptyBorder(10, 10, 10, 10))); // Borda mais grossa
-
-        JLabel title = new JLabel("MOTOR PRO");
-        title.setForeground(PURE_WHITE); title.setFont(ardelaFont.deriveFont(64f)); // Fonte maior
-        title.setAlignmentX(0.5f);
-        title.setBorder(new EmptyBorder(50, 0, 10, 0)); // Espaçamento
-
-        JLabel subTitle = new JLabel("ADMIN PANEL");
-        subTitle.setForeground(PRIMARY_GREEN); subTitle.setFont(soraFont.deriveFont(Font.BOLD, 18f)); // Subtítulo
-        subTitle.setAlignmentX(0.5f);
-        subTitle.setBorder(new EmptyBorder(0, 0, 80, 0));
+        JLabel logo = new JLabel("MOTOR PRO");
+        logo.setForeground(PURE_WHITE); logo.setFont(ardelaFont.deriveFont(64f)); logo.setAlignmentX(0.5f);
+        logo.setBorder(new EmptyBorder(0, 0, 80, 0));
 
         JButton btn = new JButton("ENTRAR NO DASHBOARD");
-        btn.setBackground(PRIMARY_GREEN); btn.setForeground(SOLID_BLACK); btn.setFont(soraFont.deriveFont(Font.BOLD, 20f)); // Fonte maior no botão
-        btn.setMaximumSize(new Dimension(500, 80)); // Botão maior
-        btn.setAlignmentX(0.5f); btn.setBorder(null); btn.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        btn.setBackground(PRIMARY_GREEN); btn.setForeground(SOLID_BLACK); btn.setFont(soraFont.deriveFont(Font.BOLD, 20f));
+        btn.setMaximumSize(new Dimension(500, 80)); btn.setAlignmentX(0.5f); btn.setBorder(null); btn.setCursor(new Cursor(Cursor.HAND_CURSOR));
 
         btn.addActionListener(e -> showDashboard());
 
-        card.add(avatar); card.add(title); card.add(subTitle); card.add(Box.createRigidArea(new Dimension(0, 60))); card.add(btn);
+        card.add(logo); card.add(btn);
         container.add(card);
         return container;
+    }
+
+    private JPanel createConfigScreen(boolean isNew) {
+        JPanel main = new JPanel(new BorderLayout(0, 30));
+        main.setBackground(ICE_WHITE);
+        main.setBorder(new EmptyBorder(40, 60, 40, 60));
+
+        JPanel header = new JPanel(new BorderLayout()); header.setBackground(ICE_WHITE);
+        JLabel lblT = new JLabel(isNew ? "NOVO CADASTRO" : "CONFIGURAÇÃO"); lblT.setFont(ardelaFont.deriveFont(52f)); lblT.setForeground(SOLID_BLACK);
+        
+        JButton btnSave = new JButton("SALVAR NO BANCO"); 
+        btnSave.setBackground(PRIMARY_GREEN); btnSave.setForeground(SOLID_BLACK); 
+        btnSave.setFont(soraFont.deriveFont(Font.BOLD, 12f)); btnSave.setPreferredSize(new Dimension(220, 60));
+        header.add(lblT, BorderLayout.WEST); header.add(btnSave, BorderLayout.EAST);
+        main.add(header, BorderLayout.NORTH);
+
+        JPanel grid = new JPanel(new GridLayout(1, 3, 25, 0)); grid.setBackground(ICE_WHITE);
+
+        // Coluna 1: Identidade e Geolocalização
+        JPanel c1 = createFormCard("DADOS DA EMPRESA");
+        JTextField txtN = createStyledField("NOME", PURE_WHITE, SOLID_BLACK);
+        JTextField txtL = createStyledField("LOCALIDADE", PURE_WHITE, SOLID_BLACK);
+        JTextField txtLat = createStyledField("LATITUDE", PURE_WHITE, SOLID_BLACK);
+        JTextField txtLon = createStyledField("LONGITUDE", PURE_WHITE, SOLID_BLACK);
+        JPasswordField txtP = new JPasswordField(); txtP.setBorder(BorderFactory.createTitledBorder(new LineBorder(PRIMARY_GREEN, 1), "SENHA", 0, 0, soraFont.deriveFont(9f), PRIMARY_GREEN));
+        
+        c1.add(txtN); c1.add(Box.createRigidArea(new Dimension(0, 10)));
+        c1.add(txtL); c1.add(Box.createRigidArea(new Dimension(0, 10)));
+        c1.add(txtLat); c1.add(Box.createRigidArea(new Dimension(0, 10)));
+        c1.add(txtLon); c1.add(Box.createRigidArea(new Dimension(0, 10)));
+        c1.add(txtP);
+
+        // Coluna 2: Equipe
+        DefaultListModel<String> mM = new DefaultListModel<>(); JPanel col2 = createListPanel("MECÂNICOS", mM);
+
+        // Coluna 3: Serviços
+        JPanel c3 = createFormCard("SERVIÇOS");
+        String[] std = {"Freios", "Suspensão", "Motor", "Óleo", "Revisão", "Elétrica"};
+        List<JCheckBox> cbs = new ArrayList<>();
+        JPanel cg = new JPanel(new GridLayout(0, 1, 0, 5)); cg.setBackground(PURE_WHITE);
+        for(String s : std) { JCheckBox b = new JCheckBox(s); b.setBackground(PURE_WHITE); b.setFont(soraFont.deriveFont(12f)); cbs.add(b); cg.add(b); }
+        c3.add(new JScrollPane(cg));
+
+        grid.add(c1); grid.add(col2); grid.add(c3);
+        main.add(grid, BorderLayout.CENTER);
+
+        btnSave.addActionListener(e -> {
+            btnSave.setText("ENVIANDO..."); btnSave.setEnabled(false);
+            List<String> servs = new ArrayList<>(); for(JCheckBox b : cbs) if(b.isSelected()) servs.add(b.getText());
+            
+            Map<String, Object> data = new HashMap<>();
+            data.put("nome", txtN.getText());
+            data.put("localidade", txtL.getText());
+            data.put("senha", new String(txtP.getPassword()));
+            try {
+                data.put("latitude", Double.parseDouble(txtLat.getText()));
+                data.put("longitude", Double.parseDouble(txtLon.getText()));
+            } catch (Exception ex) { data.put("latitude", 0.0); data.put("longitude", 0.0); }
+            data.put("mecanicos", listFromModel(mM));
+            data.put("servicos", servs);
+            data.put("horarios", Arrays.asList("08:00", "12:00", "18:00"));
+
+            String method = isNew ? "POST" : "PUT";
+            String endpoint = isNew ? "oficinas" : "oficinas/" + workshopId;
+
+            sendToAPI(method, endpoint, data).thenAccept(ok -> {
+                SwingUtilities.invokeLater(() -> {
+                    btnSave.setText("SALVAR NO BANCO"); btnSave.setEnabled(true);
+                    if(ok) JOptionPane.showMessageDialog(this, "Sucesso! Oficina salva no PostgreSQL.");
+                    else JOptionPane.showMessageDialog(this, "Erro 500: Verifique se as listas de mecânicos/serviços estão vazias.", "Erro no Servidor", JOptionPane.ERROR_MESSAGE);
+                });
+            });
+        });
+
+        autoDetectLocation(txtL, txtLat, txtLon);
+        return main;
     }
 
     private void showDashboard() {
@@ -122,28 +179,25 @@ public class Main extends JFrame {
     private JPanel createDashboardStructure() {
         JPanel dash = new JPanel(new BorderLayout());
         dashboardLayout = new CardLayout(); dashboardContent = new JPanel(dashboardLayout);
-        
         JPanel sidebar = new JPanel(new BorderLayout()); sidebar.setPreferredSize(new Dimension(320, 0)); sidebar.setBackground(SOLID_BLACK);
         sidebarButtons = new JPanel(); sidebarButtons.setLayout(new BoxLayout(sidebarButtons, BoxLayout.Y_AXIS)); sidebarButtons.setBackground(SOLID_BLACK);
         
-        // ABAS DE DADOS REAIS
         addMenuButton("🚗", "VEÍCULOS", "veiculos", new String[]{"Placa", "Modelo", "Ano"}, new String[]{"placa", "modelo", "ano"});
         addMenuButton("📅", "AGENDAMENTOS", "agendamentos", new String[]{"Cliente", "Serviço", "Horário"}, new String[]{"userId", "servico", "horario"});
-        addMenuButton("🛠️", "OFICINAS", "oficinas", new String[]{"ID", "Nome", "Localidade"}, new String[]{"id", "nome", "localidade"});
+        
+        JButton btnAdd = createSidebarBtn("➕", "ADICIONAR OFICINA");
+        dashboardContent.add(createConfigScreen(true), "ADD_OFICINA");
+        btnAdd.addActionListener(e -> { currentActiveTab = "ADD_OFICINA"; dashboardLayout.show(dashboardContent, "ADD_OFICINA"); highlightButton(btnAdd); });
+        sidebarButtons.add(btnAdd);
 
-        lblStatus = new JLabel(); updateStatus(true);
-        JPanel foot = new JPanel(new BorderLayout()); foot.setBackground(SOLID_BLACK); foot.setBorder(new EmptyBorder(20, 45, 40, 45));
-        foot.add(lblStatus); sidebar.add(foot, BorderLayout.SOUTH);
-        
         sidebar.add(sidebarButtons, BorderLayout.CENTER); dash.add(sidebar, BorderLayout.WEST); dash.add(dashboardContent, BorderLayout.CENTER);
-        
         if (sidebarButtons.getComponentCount() > 0) ((JButton)sidebarButtons.getComponent(0)).doClick();
         
-        autoRefreshTimer = new javax.swing.Timer(5000, e -> { 
+        new javax.swing.Timer(5000, e -> { 
+            if(currentActiveTab.equals("ADD_OFICINA")) return;
             RefreshParams p = tabRefreshMap.get(currentActiveTab); 
             if (p != null) refreshData(p.endpoint, p.model, p.jsonKeys); 
-        });
-        autoRefreshTimer.start();
+        }).start();
         return dash;
     }
 
@@ -165,7 +219,7 @@ public class Main extends JFrame {
 
     private void highlightButton(JButton btn) {
         for (Component c : sidebarButtons.getComponents()) if (c instanceof JButton) { c.setBackground(SOLID_BLACK); ((JButton)c).setBorder(new EmptyBorder(0, 45, 0, 0)); }
-        btn.setBackground(Color.decode("#1A1A1A"));
+        btn.setBackground(SIDEBAR_SELECTED);
         btn.setBorder(new CompoundBorder(BorderFactory.createMatteBorder(0, 8, 0, 0, PRIMARY_GREEN), new EmptyBorder(0, 37, 0, 0)));
     }
 
@@ -182,9 +236,23 @@ public class Main extends JFrame {
         return p;
     }
 
+    private java.util.concurrent.CompletableFuture<Boolean> sendToAPI(String method, String endpoint, Object data) {
+        String json = gson.toJson(data);
+        HttpRequest.Builder rb = HttpRequest.newBuilder().uri(URI.create(BASE_URL + endpoint)).header("Content-Type", "application/json");
+        if(method.equals("POST")) rb.POST(HttpRequest.BodyPublishers.ofString(json));
+        else rb.PUT(HttpRequest.BodyPublishers.ofString(json));
+        return client.sendAsync(rb.build(), HttpResponse.BodyHandlers.ofString()).thenApply(res -> {
+            System.out.println("Status: " + res.statusCode() + " | Body: " + res.body());
+            if(res.statusCode() == 201) {
+                try { Map<String, Object> r = gson.fromJson(res.body(), new TypeToken<Map<String, Object>>(){}.getType()); workshopId = r.get("id").toString(); } catch(Exception ignored){}
+            }
+            return res.statusCode() >= 200 && res.statusCode() < 300;
+        }).exceptionally(ex -> false);
+    }
+
     private void refreshData(String endpoint, DefaultTableModel model, String[] jsonKeys) {
         client.sendAsync(HttpRequest.newBuilder().uri(URI.create(BASE_URL + endpoint)).build(), HttpResponse.BodyHandlers.ofString())
-            .thenApply(res -> { updateStatus(res.statusCode() == 200); return res.body(); })
+            .thenApply(res -> res.body())
             .thenAccept(json -> SwingUtilities.invokeLater(() -> {
                 model.setRowCount(0);
                 try {
@@ -195,12 +263,19 @@ public class Main extends JFrame {
                         model.addRow(row);
                     }
                 } catch (Exception ignored) {}
-            })).exceptionally(ex -> { SwingUtilities.invokeLater(() -> updateStatus(false)); return null; });
+            }));
     }
 
-    private void updateStatus(boolean online) {
-        String c = online ? "#16BC4E" : "#555555";
-        if (lblStatus != null) lblStatus.setText("<html><span style='color: " + c + "; font-family: Sora; font-size: 11px; font-weight: bold;'>&bull; System Online</span></html>");
+    private void autoDetectLocation(JTextField txtLoc, JTextField txtLat, JTextField txtLon) {
+        client.sendAsync(HttpRequest.newBuilder().uri(URI.create("http://ip-api.com/json/")).build(), HttpResponse.BodyHandlers.ofString())
+            .thenApply(HttpResponse::body)
+            .thenAccept(json -> SwingUtilities.invokeLater(() -> {
+                Map<String, Object> data = gson.fromJson(json, new TypeToken<Map<String, Object>>(){}.getType());
+                if(data != null && "success".equals(data.get("status"))) {
+                    txtLat.setText(String.valueOf(data.get("lat"))); txtLon.setText(String.valueOf(data.get("lon")));
+                    txtLoc.setText(data.get("city") + ", " + data.get("regionName"));
+                }
+            })).exceptionally(ex -> null);
     }
 
     private void loadFonts() {
@@ -216,6 +291,35 @@ public class Main extends JFrame {
             soraFont = new Font("SansSerif", Font.PLAIN, 16);
         }
     }
+
+    private JPanel createListPanel(String title, DefaultListModel<String> model) {
+        JPanel p = new JPanel(new BorderLayout(5, 5)); p.setBackground(PURE_WHITE);
+        p.setBorder(new CompoundBorder(new LineBorder(Color.decode("#DDD"), 1), new EmptyBorder(10, 10, 10, 10)));
+        JTextField in = new JTextField("Adicionar e Enter..."); in.addActionListener(e -> { if(!in.getText().isEmpty()){ model.addElement(in.getText()); in.setText(""); } });
+        p.add(new JLabel(title), BorderLayout.NORTH); p.add(in, BorderLayout.CENTER); p.add(new JScrollPane(new JList<>(model)), BorderLayout.SOUTH);
+        p.getComponent(2).setPreferredSize(new Dimension(0, 150));
+        return p;
+    }
+
+    private JPanel createFormCard(String title) {
+        JPanel p = new JPanel(); p.setLayout(new BoxLayout(p, BoxLayout.Y_AXIS)); p.setBackground(PURE_WHITE);
+        p.setBorder(new CompoundBorder(new LineBorder(Color.decode("#DDD"), 1), new EmptyBorder(25, 25, 25, 25)));
+        JLabel l = new JLabel(title); l.setFont(soraFont.deriveFont(Font.BOLD, 14f)); l.setBorder(new EmptyBorder(0, 0, 20, 0));
+        p.add(l); return p;
+    }
+
+    private JTextField createStyledField(String placeholder, Color bg, Color fg) {
+        JTextField f = new JTextField(); f.setMaximumSize(new Dimension(Integer.MAX_VALUE, 60));
+        f.setFont(soraFont.deriveFont(14f)); f.setBackground(bg); f.setForeground(fg); f.setCaretColor(fg);
+        f.setBorder(BorderFactory.createTitledBorder(new LineBorder(PRIMARY_GREEN, 1), placeholder, 0, 0, soraFont.deriveFont(9f), PRIMARY_GREEN));
+        return f;
+    }
+
+    private List<String> listFromModel(DefaultListModel<String> m) {
+        List<String> l = new ArrayList<>(); for(int i=0; i<m.size(); i++) l.add(m.get(i)); return l;
+    }
+
+    private void updateStatus(boolean online) {}
 
     public static void main(String[] args) {
         try { UIManager.setLookAndFeel(UIManager.getCrossPlatformLookAndFeelClassName()); } catch (Exception ignored) {}
