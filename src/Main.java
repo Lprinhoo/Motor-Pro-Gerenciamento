@@ -26,7 +26,8 @@ import java.util.*;
 import java.util.List;
 
 public class Main extends JFrame {
-    private static final String BASE_URL = "https://teste-production-a485.up.railway.app/api/";
+    private static final String BASE_URL = "https://teste-production-a485.up.railway.app/";
+    private static final String ADMIN_PASSWORD = "motopro2024";
     private static final HttpClient client = HttpClient.newBuilder().connectTimeout(java.time.Duration.ofSeconds(15)).build();
     private static final Gson gson = new Gson();
 
@@ -45,9 +46,10 @@ public class Main extends JFrame {
     private JPanel sidebarButtons;
     private JLabel lblStatus;
 
-    private String workshopId = ""; // UUID gerado pelo servidor
+    private String workshopId = ""; 
     private String currentActiveTab = "VEÍCULOS";
     private Map<String, RefreshParams> tabRefreshMap = new HashMap<>();
+    private javax.swing.Timer autoRefreshTimer;
 
     private static class RefreshParams {
         String endpoint; DefaultTableModel model; String[] jsonKeys;
@@ -59,9 +61,9 @@ public class Main extends JFrame {
         setupWindow();
         masterLayout = new CardLayout();
         masterPanel = new JPanel(masterLayout);
-        masterPanel.add(createLaunchScreen(), "LAUNCH");
+        masterPanel.add(createLaunchScreen(), "LOGIN");
         add(masterPanel);
-        masterLayout.show(masterPanel, "LAUNCH");
+        masterLayout.show(masterPanel, "LOGIN");
         setVisible(true);
     }
 
@@ -79,58 +81,46 @@ public class Main extends JFrame {
         JPanel container = new JPanel(new GridBagLayout());
         container.setBackground(SOLID_BLACK);
         JPanel card = new JPanel(); card.setLayout(new BoxLayout(card, BoxLayout.Y_AXIS)); card.setBackground(SOLID_BLACK);
-        
-        JLabel logo = new JLabel("MOTOR PRO");
-        logo.setForeground(PURE_WHITE); logo.setFont(ardelaFont.deriveFont(64f)); logo.setAlignmentX(0.5f);
-        logo.setBorder(new EmptyBorder(0, 0, 80, 0));
-
+        JLabel logo = new JLabel("MOTOR PRO"); logo.setForeground(PURE_WHITE); logo.setFont(ardelaFont.deriveFont(64f)); logo.setAlignmentX(0.5f);
         JButton btn = new JButton("ENTRAR NO DASHBOARD");
         btn.setBackground(PRIMARY_GREEN); btn.setForeground(SOLID_BLACK); btn.setFont(soraFont.deriveFont(Font.BOLD, 20f));
         btn.setMaximumSize(new Dimension(500, 80)); btn.setAlignmentX(0.5f); btn.setBorder(null); btn.setCursor(new Cursor(Cursor.HAND_CURSOR));
-
         btn.addActionListener(e -> showDashboard());
-
-        card.add(logo); card.add(btn);
+        card.add(logo); card.add(Box.createRigidArea(new Dimension(0, 60))); card.add(btn);
         container.add(card);
         return container;
     }
 
     private JPanel createConfigScreen(boolean isNew) {
-        JPanel main = new JPanel(new BorderLayout(0, 30));
+        JPanel main = new JPanel(new BorderLayout(0, 40));
         main.setBackground(ICE_WHITE);
         main.setBorder(new EmptyBorder(40, 60, 40, 60));
 
         JPanel header = new JPanel(new BorderLayout()); header.setBackground(ICE_WHITE);
         JLabel lblT = new JLabel(isNew ? "NOVO CADASTRO" : "CONFIGURAÇÃO"); lblT.setFont(ardelaFont.deriveFont(52f)); lblT.setForeground(SOLID_BLACK);
-        
-        JButton btnSave = new JButton("SALVAR NO BANCO"); 
-        btnSave.setBackground(PRIMARY_GREEN); btnSave.setForeground(SOLID_BLACK); 
-        btnSave.setFont(soraFont.deriveFont(Font.BOLD, 12f)); btnSave.setPreferredSize(new Dimension(220, 60));
+        JButton btnSave = new JButton("SALVAR DADOS"); btnSave.setBackground(PRIMARY_GREEN); btnSave.setForeground(SOLID_BLACK); btnSave.setFont(soraFont.deriveFont(Font.BOLD, 12f)); btnSave.setPreferredSize(new Dimension(200, 60));
         header.add(lblT, BorderLayout.WEST); header.add(btnSave, BorderLayout.EAST);
         main.add(header, BorderLayout.NORTH);
 
         JPanel grid = new JPanel(new GridLayout(1, 3, 25, 0)); grid.setBackground(ICE_WHITE);
 
-        // Coluna 1: Identidade e Geolocalização
         JPanel c1 = createFormCard("DADOS DA EMPRESA");
-        JTextField txtN = createStyledField("NOME", PURE_WHITE, SOLID_BLACK);
-        JTextField txtL = createStyledField("LOCALIDADE", PURE_WHITE, SOLID_BLACK);
+        JTextField txtID = createStyledField("ID DA OFICINA (Vazio para novo)", PURE_WHITE, SOLID_BLACK);
+        txtID.setText(workshopId);
+        JTextField txtN = createStyledField("NOME DA OFICINA", PURE_WHITE, SOLID_BLACK);
+        JTextField txtL = createStyledField("LOCALIDADE / ENDEREÇO", PURE_WHITE, SOLID_BLACK);
         JTextField txtLat = createStyledField("LATITUDE", PURE_WHITE, SOLID_BLACK);
         JTextField txtLon = createStyledField("LONGITUDE", PURE_WHITE, SOLID_BLACK);
-        JPasswordField txtP = new JPasswordField(); txtP.setBorder(BorderFactory.createTitledBorder(new LineBorder(PRIMARY_GREEN, 1), "SENHA", 0, 0, soraFont.deriveFont(9f), PRIMARY_GREEN));
-        
+        c1.add(txtID); c1.add(Box.createRigidArea(new Dimension(0, 10)));
         c1.add(txtN); c1.add(Box.createRigidArea(new Dimension(0, 10)));
         c1.add(txtL); c1.add(Box.createRigidArea(new Dimension(0, 10)));
         c1.add(txtLat); c1.add(Box.createRigidArea(new Dimension(0, 10)));
-        c1.add(txtLon); c1.add(Box.createRigidArea(new Dimension(0, 10)));
-        c1.add(txtP);
+        c1.add(txtLon);
 
-        // Coluna 2: Equipe
-        DefaultListModel<String> mM = new DefaultListModel<>(); JPanel col2 = createListPanel("MECÂNICOS", mM);
+        DefaultListModel<String> mM = new DefaultListModel<>(); JPanel col2 = createListPanel("EQUIPE (MECÂNICOS)", mM);
 
-        // Coluna 3: Serviços
         JPanel c3 = createFormCard("SERVIÇOS");
-        String[] std = {"Freios", "Suspensão", "Motor", "Óleo", "Revisão", "Elétrica"};
+        String[] std = {"Freios", "Suspensão", "Motor", "Óleo", "Revisão"};
         List<JCheckBox> cbs = new ArrayList<>();
         JPanel cg = new JPanel(new GridLayout(0, 1, 0, 5)); cg.setBackground(PURE_WHITE);
         for(String s : std) { JCheckBox b = new JCheckBox(s); b.setBackground(PURE_WHITE); b.setFont(soraFont.deriveFont(12f)); cbs.add(b); cg.add(b); }
@@ -140,31 +130,20 @@ public class Main extends JFrame {
         main.add(grid, BorderLayout.CENTER);
 
         btnSave.addActionListener(e -> {
-            btnSave.setText("ENVIANDO..."); btnSave.setEnabled(false);
             List<String> servs = new ArrayList<>(); for(JCheckBox b : cbs) if(b.isSelected()) servs.add(b.getText());
-            
             Map<String, Object> data = new HashMap<>();
-            data.put("nome", txtN.getText());
+            data.put("nome", txtN.getText()); 
             data.put("localidade", txtL.getText());
-            data.put("senha", new String(txtP.getPassword()));
-            try {
-                data.put("latitude", Double.parseDouble(txtLat.getText()));
-                data.put("longitude", Double.parseDouble(txtLon.getText()));
-            } catch (Exception ex) { data.put("latitude", 0.0); data.put("longitude", 0.0); }
-            data.put("mecanicos", listFromModel(mM));
-            data.put("servicos", servs);
+            data.put("endereco", txtL.getText());
+            try { data.put("latitude", Double.parseDouble(txtLat.getText())); data.put("longitude", Double.parseDouble(txtLon.getText())); } catch (Exception ex) { data.put("latitude", 0.0); data.put("longitude", 0.0); }
+            data.put("mecanicos", listFromModel(mM)); data.put("servicos", servs);
             data.put("horarios", Arrays.asList("08:00", "12:00", "18:00"));
 
-            String method = isNew ? "POST" : "PUT";
-            String endpoint = isNew ? "oficinas" : "oficinas/" + workshopId;
+            String tID = txtID.getText().trim();
+            String method = tID.isEmpty() ? "POST" : "PUT";
+            String endpoint = tID.isEmpty() ? "api/oficinas" : "api/oficinas/" + tID;
 
-            sendToAPI(method, endpoint, data).thenAccept(ok -> {
-                SwingUtilities.invokeLater(() -> {
-                    btnSave.setText("SALVAR NO BANCO"); btnSave.setEnabled(true);
-                    if(ok) JOptionPane.showMessageDialog(this, "Sucesso! Oficina salva no PostgreSQL.");
-                    else JOptionPane.showMessageDialog(this, "Erro 500: Verifique se as listas de mecânicos/serviços estão vazias.", "Erro no Servidor", JOptionPane.ERROR_MESSAGE);
-                });
-            });
+            sendToAPI(method, endpoint, data).thenAccept(ok -> { if(ok) SwingUtilities.invokeLater(() -> showDashboard()); });
         });
 
         autoDetectLocation(txtL, txtLat, txtLon);
@@ -172,8 +151,13 @@ public class Main extends JFrame {
     }
 
     private void showDashboard() {
-        masterPanel.add(createDashboardStructure(), "DASHBOARD");
-        masterLayout.show(masterPanel, "DASHBOARD");
+        String pass = JOptionPane.showInputDialog(this, "Senha Admin:", "Login", JOptionPane.QUESTION_MESSAGE);
+        if(ADMIN_PASSWORD.equals(pass)) {
+            masterPanel.add(createDashboardStructure(), "DASHBOARD");
+            masterLayout.show(masterPanel, "DASHBOARD");
+        } else if(pass != null) {
+            JOptionPane.showMessageDialog(this, "Acesso Negado.");
+        }
     }
 
     private JPanel createDashboardStructure() {
@@ -182,9 +166,14 @@ public class Main extends JFrame {
         JPanel sidebar = new JPanel(new BorderLayout()); sidebar.setPreferredSize(new Dimension(320, 0)); sidebar.setBackground(SOLID_BLACK);
         sidebarButtons = new JPanel(); sidebarButtons.setLayout(new BoxLayout(sidebarButtons, BoxLayout.Y_AXIS)); sidebarButtons.setBackground(SOLID_BLACK);
         
-        addMenuButton("🚗", "VEÍCULOS", "veiculos", new String[]{"Placa", "Modelo", "Ano"}, new String[]{"placa", "modelo", "ano"});
-        addMenuButton("📅", "AGENDAMENTOS", "agendamentos", new String[]{"Cliente", "Serviço", "Horário"}, new String[]{"userId", "servico", "horario"});
+        addMenuButton("🚗", "VEÍCULOS", "api/veiculos", new String[]{"Placa", "Modelo", "Ano"}, new String[]{"placa", "modelo", "ano"});
+        addMenuButton("📅", "AGENDAMENTOS", "api/agendamentos", new String[]{"Cliente", "Serviço", "Horário"}, new String[]{"userId", "servico", "horario"});
         
+        JButton btnEdit = createSidebarBtn("✏️", "EDITAR OFICINA");
+        dashboardContent.add(createConfigScreen(false), "EDIT_CONFIG");
+        btnEdit.addActionListener(e -> { currentActiveTab = "EDIT_CONFIG"; dashboardLayout.show(dashboardContent, "EDIT_CONFIG"); highlightButton(btnEdit); });
+        sidebarButtons.add(btnEdit);
+
         JButton btnAdd = createSidebarBtn("➕", "ADICIONAR OFICINA");
         dashboardContent.add(createConfigScreen(true), "ADD_OFICINA");
         btnAdd.addActionListener(e -> { currentActiveTab = "ADD_OFICINA"; dashboardLayout.show(dashboardContent, "ADD_OFICINA"); highlightButton(btnAdd); });
@@ -193,11 +182,8 @@ public class Main extends JFrame {
         sidebar.add(sidebarButtons, BorderLayout.CENTER); dash.add(sidebar, BorderLayout.WEST); dash.add(dashboardContent, BorderLayout.CENTER);
         if (sidebarButtons.getComponentCount() > 0) ((JButton)sidebarButtons.getComponent(0)).doClick();
         
-        new javax.swing.Timer(5000, e -> { 
-            if(currentActiveTab.equals("ADD_OFICINA")) return;
-            RefreshParams p = tabRefreshMap.get(currentActiveTab); 
-            if (p != null) refreshData(p.endpoint, p.model, p.jsonKeys); 
-        }).start();
+        autoRefreshTimer = new javax.swing.Timer(5000, e -> { if(!currentActiveTab.endsWith("CONFIG")) { RefreshParams p = tabRefreshMap.get(currentActiveTab); if (p != null) refreshData(p.endpoint, p.model, p.jsonKeys); } });
+        autoRefreshTimer.start();
         return dash;
     }
 
@@ -225,8 +211,7 @@ public class Main extends JFrame {
 
     private JPanel createViewPanel(String title, DefaultTableModel model) {
         JPanel p = new JPanel(new BorderLayout(0, 40)); p.setBackground(ICE_WHITE); p.setBorder(new EmptyBorder(60, 90, 60, 90));
-        String cleanTitle = title.replaceAll("[^\\p{L}\\p{Nd}\\s]", "").trim();
-        JLabel t = new JLabel(cleanTitle); t.setFont(ardelaFont.deriveFont(52f)); t.setForeground(SOLID_BLACK);
+        JLabel t = new JLabel(title.replaceAll("[^\\p{L}\\p{Nd}\\s]", "").trim()); t.setFont(ardelaFont.deriveFont(52f));
         JTable table = new JTable(model); table.setRowHeight(75); table.setFont(soraFont.deriveFont(16f));
         table.setBackground(PURE_WHITE); table.setGridColor(ICE_WHITE);
         JTableHeader h = table.getTableHeader(); h.setBackground(PURE_WHITE); h.setFont(soraFont.deriveFont(Font.BOLD, 18f)); h.setPreferredSize(new Dimension(0, 80)); h.setBorder(BorderFactory.createMatteBorder(0, 0, 4, 0, PRIMARY_GREEN));
@@ -241,13 +226,7 @@ public class Main extends JFrame {
         HttpRequest.Builder rb = HttpRequest.newBuilder().uri(URI.create(BASE_URL + endpoint)).header("Content-Type", "application/json");
         if(method.equals("POST")) rb.POST(HttpRequest.BodyPublishers.ofString(json));
         else rb.PUT(HttpRequest.BodyPublishers.ofString(json));
-        return client.sendAsync(rb.build(), HttpResponse.BodyHandlers.ofString()).thenApply(res -> {
-            System.out.println("Status: " + res.statusCode() + " | Body: " + res.body());
-            if(res.statusCode() == 201) {
-                try { Map<String, Object> r = gson.fromJson(res.body(), new TypeToken<Map<String, Object>>(){}.getType()); workshopId = r.get("id").toString(); } catch(Exception ignored){}
-            }
-            return res.statusCode() >= 200 && res.statusCode() < 300;
-        }).exceptionally(ex -> false);
+        return client.sendAsync(rb.build(), HttpResponse.BodyHandlers.ofString()).thenApply(res -> res.statusCode() >= 200 && res.statusCode() < 300).exceptionally(ex -> false);
     }
 
     private void refreshData(String endpoint, DefaultTableModel model, String[] jsonKeys) {
@@ -263,7 +242,7 @@ public class Main extends JFrame {
                         model.addRow(row);
                     }
                 } catch (Exception ignored) {}
-            }));
+            })).exceptionally(ex -> null);
     }
 
     private void autoDetectLocation(JTextField txtLoc, JTextField txtLat, JTextField txtLon) {
@@ -275,7 +254,7 @@ public class Main extends JFrame {
                     txtLat.setText(String.valueOf(data.get("lat"))); txtLon.setText(String.valueOf(data.get("lon")));
                     txtLoc.setText(data.get("city") + ", " + data.get("regionName"));
                 }
-            })).exceptionally(ex -> null);
+            }));
     }
 
     private void loadFonts() {
@@ -284,28 +263,10 @@ public class Main extends JFrame {
             ardelaFont = Font.createFont(Font.TRUETYPE_FONT, isA);
             InputStream isS = getClass().getResourceAsStream("/assets/Sora-Regular.ttf");
             soraFont = Font.createFont(Font.TRUETYPE_FONT, isS);
-            GraphicsEnvironment.getLocalGraphicsEnvironment().registerFont(ardelaFont);
-            GraphicsEnvironment.getLocalGraphicsEnvironment().registerFont(soraFont);
         } catch (Exception e) {
             ardelaFont = new Font("SansSerif", Font.BOLD, 36);
             soraFont = new Font("SansSerif", Font.PLAIN, 16);
         }
-    }
-
-    private JPanel createListPanel(String title, DefaultListModel<String> model) {
-        JPanel p = new JPanel(new BorderLayout(5, 5)); p.setBackground(PURE_WHITE);
-        p.setBorder(new CompoundBorder(new LineBorder(Color.decode("#DDD"), 1), new EmptyBorder(10, 10, 10, 10)));
-        JTextField in = new JTextField("Adicionar e Enter..."); in.addActionListener(e -> { if(!in.getText().isEmpty()){ model.addElement(in.getText()); in.setText(""); } });
-        p.add(new JLabel(title), BorderLayout.NORTH); p.add(in, BorderLayout.CENTER); p.add(new JScrollPane(new JList<>(model)), BorderLayout.SOUTH);
-        p.getComponent(2).setPreferredSize(new Dimension(0, 150));
-        return p;
-    }
-
-    private JPanel createFormCard(String title) {
-        JPanel p = new JPanel(); p.setLayout(new BoxLayout(p, BoxLayout.Y_AXIS)); p.setBackground(PURE_WHITE);
-        p.setBorder(new CompoundBorder(new LineBorder(Color.decode("#DDD"), 1), new EmptyBorder(25, 25, 25, 25)));
-        JLabel l = new JLabel(title); l.setFont(soraFont.deriveFont(Font.BOLD, 14f)); l.setBorder(new EmptyBorder(0, 0, 20, 0));
-        p.add(l); return p;
     }
 
     private JTextField createStyledField(String placeholder, Color bg, Color fg) {
@@ -315,11 +276,25 @@ public class Main extends JFrame {
         return f;
     }
 
+    private JPanel createFormCard(String title) {
+        JPanel p = new JPanel(); p.setLayout(new BoxLayout(p, BoxLayout.Y_AXIS)); p.setBackground(PURE_WHITE);
+        p.setBorder(new CompoundBorder(new LineBorder(Color.decode("#DDD"), 1), new EmptyBorder(25, 25, 25, 25)));
+        JLabel l = new JLabel(title); l.setFont(soraFont.deriveFont(Font.BOLD, 14f)); l.setBorder(new EmptyBorder(0, 0, 20, 0));
+        p.add(l); return p;
+    }
+
+    private JPanel createListPanel(String title, DefaultListModel<String> model) {
+        JPanel p = new JPanel(new BorderLayout(5, 5)); p.setBackground(PURE_WHITE);
+        p.setBorder(new CompoundBorder(new LineBorder(Color.decode("#DDD"), 1), new EmptyBorder(10, 10, 10, 10)));
+        JTextField in = new JTextField("Adicionar..."); in.addActionListener(e -> { if(!in.getText().isEmpty()){ model.addElement(in.getText()); in.setText(""); } });
+        p.add(new JLabel(title), BorderLayout.NORTH); p.add(in, BorderLayout.CENTER); p.add(new JScrollPane(new JList<>(model)), BorderLayout.SOUTH);
+        p.getComponent(2).setPreferredSize(new Dimension(0, 150));
+        return p;
+    }
+
     private List<String> listFromModel(DefaultListModel<String> m) {
         List<String> l = new ArrayList<>(); for(int i=0; i<m.size(); i++) l.add(m.get(i)); return l;
     }
-
-    private void updateStatus(boolean online) {}
 
     public static void main(String[] args) {
         try { UIManager.setLookAndFeel(UIManager.getCrossPlatformLookAndFeelClassName()); } catch (Exception ignored) {}
