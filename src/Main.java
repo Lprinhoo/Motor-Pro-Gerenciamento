@@ -10,6 +10,9 @@ import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.table.JTableHeader;
 import java.awt.*;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
+import java.awt.image.BufferedImage;
 import java.io.InputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -23,7 +26,6 @@ public class Main extends JFrame {
     private static final HttpClient client = HttpClient.newBuilder().connectTimeout(java.time.Duration.ofSeconds(15)).build();
     private static final Gson gson = new Gson();
 
-    // Paleta Oficial
     private static final Color PRIMARY_GREEN = Color.decode("#16BC4E");
     private static final Color SOLID_BLACK = Color.decode("#0B0B0B");
     private static final Color ICE_WHITE = Color.decode("#F5F6FC");
@@ -35,14 +37,20 @@ public class Main extends JFrame {
     private CardLayout masterLayout;
     private JPanel masterPanel, dashboardContent, sidebarButtons;
     private CardLayout dashboardLayout;
-    private String currentActiveTab = "OFICINAS";
+    private String currentActiveTab = "";
+    private Map<String, RefreshParams> tabRefreshMap = new HashMap<>();
+
+    // --- CLASSE AUXILIAR RESTAURADA ---
+    private static class RefreshParams {
+        String endpoint; DefaultTableModel model; String[] jsonKeys;
+        RefreshParams(String e, DefaultTableModel m, String[] k) { this.endpoint = e; this.model = m; this.jsonKeys = k; }
+    }
 
     public Main() {
         loadFonts();
         setupWindow();
         masterLayout = new CardLayout();
         masterPanel = new JPanel(masterLayout);
-        
         masterPanel.add(createLaunchScreen(), "LAUNCH");
         add(masterPanel);
         masterLayout.show(masterPanel, "LAUNCH");
@@ -63,18 +71,12 @@ public class Main extends JFrame {
         JPanel container = new JPanel(new GridBagLayout());
         container.setBackground(SOLID_BLACK);
         JPanel card = new JPanel(); card.setLayout(new BoxLayout(card, BoxLayout.Y_AXIS)); card.setBackground(SOLID_BLACK);
-        
-        JLabel logo = new JLabel("MOTOR PRO");
-        logo.setForeground(PURE_WHITE); logo.setFont(ardelaFont.deriveFont(64f)); logo.setAlignmentX(0.5f);
-        
-        JLabel sub = new JLabel("ENTERPRISE MANAGEMENT");
-        sub.setForeground(PRIMARY_GREEN); sub.setFont(soraFont.deriveFont(Font.BOLD, 16f)); sub.setAlignmentX(0.5f);
+        JLabel logo = new JLabel("MOTOR PRO"); logo.setForeground(PURE_WHITE); logo.setFont(ardelaFont.deriveFont(64f)); logo.setAlignmentX(0.5f);
+        JLabel sub = new JLabel("DATA MONITORING SYSTEM"); sub.setForeground(PRIMARY_GREEN); sub.setFont(soraFont.deriveFont(Font.BOLD, 16f)); sub.setAlignmentX(0.5f);
         sub.setBorder(new EmptyBorder(0, 0, 80, 0));
-
         JButton btn = new JButton("ACESSAR DASHBOARD");
         btn.setBackground(PRIMARY_GREEN); btn.setForeground(SOLID_BLACK); btn.setFont(soraFont.deriveFont(Font.BOLD, 20f));
-        btn.setMaximumSize(new Dimension(500, 80)); btn.setAlignmentX(0.5f); btn.setCursor(new Cursor(Cursor.HAND_CURSOR));
-
+        btn.setMaximumSize(new Dimension(500, 80)); btn.setAlignmentX(0.5f); btn.setBorder(null); btn.setCursor(new Cursor(Cursor.HAND_CURSOR));
         btn.addActionListener(e -> showDashboard());
         card.add(logo); card.add(sub); card.add(Box.createRigidArea(new Dimension(0, 40))); card.add(btn);
         container.add(card);
@@ -89,18 +91,16 @@ public class Main extends JFrame {
     private JPanel createDashboardStructure() {
         JPanel dash = new JPanel(new BorderLayout());
         dashboardLayout = new CardLayout(); dashboardContent = new JPanel(dashboardLayout);
-        
         JPanel sidebar = new JPanel(new BorderLayout()); sidebar.setPreferredSize(new Dimension(320, 0)); sidebar.setBackground(SOLID_BLACK);
         sidebarButtons = new JPanel(); sidebarButtons.setLayout(new BoxLayout(sidebarButtons, BoxLayout.Y_AXIS)); sidebarButtons.setBackground(SOLID_BLACK);
         
-        addMenuButton("🛠️", "OFICINAS", "oficinas", new String[]{"ID", "Nome", "Endereço", "Serviços"}, new String[]{"id", "nome", "endereco", "servicos"});
-        addMenuButton("📅", "AGENDAMENTOS", "appointments", new String[]{"ID", "Serviço", "Data/Hora", "Oficina", "Status"}, new String[]{"id", "servico", "dataHora", "oficinaNome", "status"});
-        
+        addMenuButton("👤", "PERFIS", "api/perfis", new String[]{"UID", "Nome", "Email"}, new String[]{"uid", "nome", "email"});
+        addMenuButton("🛠️", "OFICINAS", "api/oficinas", new String[]{"ID", "Nome", "Endereço", "Serviços"}, new String[]{"id", "nome", "endereco", "servicos"});
+        addMenuButton("📅", "AGENDAMENTOS", "api/agendamentos", new String[]{"ID", "Serviço", "Horário", "Mecânico"}, new String[]{"id", "servico", "horario", "mecanico"});
+
         sidebar.add(sidebarButtons, BorderLayout.CENTER);
         dash.add(sidebar, BorderLayout.WEST); dash.add(dashboardContent, BorderLayout.CENTER);
-        
         if (sidebarButtons.getComponentCount() > 0) ((JButton)sidebarButtons.getComponent(0)).doClick();
-        
         return dash;
     }
 
@@ -108,6 +108,7 @@ public class Main extends JFrame {
         JButton btn = createSidebarBtn(icon, text);
         DefaultTableModel model = new DefaultTableModel(cols, 0) { @Override public boolean isCellEditable(int r, int c) { return false; } };
         dashboardContent.add(createViewPanel(text, model, endpoint, keys), text);
+        tabRefreshMap.put(text, new RefreshParams(endpoint, model, keys));
         btn.addActionListener(e -> {
             currentActiveTab = text;
             dashboardLayout.show(dashboardContent, text);
@@ -134,21 +135,16 @@ public class Main extends JFrame {
         JPanel p = new JPanel(new BorderLayout(0, 40)); p.setBackground(ICE_WHITE); p.setBorder(new EmptyBorder(60, 90, 60, 90));
         JPanel head = new JPanel(new BorderLayout()); head.setBackground(ICE_WHITE);
         JLabel t = new JLabel(title); t.setFont(ardelaFont.deriveFont(52f)); t.setForeground(SOLID_BLACK);
-        
-        JButton refresh = new JButton("ATUALIZAR");
+        JButton refresh = new JButton("ATUALIZAR DADOS");
         refresh.setBackground(PRIMARY_GREEN); refresh.setForeground(SOLID_BLACK); refresh.setFont(soraFont.deriveFont(Font.BOLD, 12f));
-        refresh.setPreferredSize(new Dimension(180, 50));
+        refresh.setPreferredSize(new Dimension(220, 50));
         refresh.addActionListener(e -> refreshData(endpoint, model, jsonKeys));
-        
         head.add(t, BorderLayout.WEST); head.add(refresh, BorderLayout.EAST);
-
-        JTable table = new JTable(model); table.setRowHeight(75); table.setFont(soraFont.deriveFont(15f));
+        JTable table = new JTable(model); table.setRowHeight(75); table.setFont(soraFont.deriveFont(16f));
         table.setBackground(PURE_WHITE); table.setGridColor(ICE_WHITE);
-        
-        JTableHeader h = table.getTableHeader(); h.setBackground(PURE_WHITE); h.setFont(soraFont.deriveFont(Font.BOLD, 16f)); h.setPreferredSize(new Dimension(0, 70)); h.setBorder(BorderFactory.createMatteBorder(0, 0, 3, 0, PRIMARY_GREEN));
+        JTableHeader h = table.getTableHeader(); h.setBackground(PURE_WHITE); h.setFont(soraFont.deriveFont(Font.BOLD, 18f)); h.setPreferredSize(new Dimension(0, 70)); h.setBorder(BorderFactory.createMatteBorder(0, 0, 3, 0, PRIMARY_GREEN));
         DefaultTableCellRenderer cr = new DefaultTableCellRenderer(); cr.setHorizontalAlignment(JLabel.CENTER);
         for(int i=0; i<table.getColumnCount(); i++) table.getColumnModel().getColumn(i).setCellRenderer(cr);
-        
         p.add(head, BorderLayout.NORTH); p.add(new JScrollPane(table), BorderLayout.CENTER);
         return p;
     }
@@ -156,17 +152,24 @@ public class Main extends JFrame {
     private void refreshData(String endpoint, DefaultTableModel model, String[] jsonKeys) {
         HttpRequest request = HttpRequest.newBuilder().uri(URI.create(BASE_URL + endpoint)).GET().build();
         client.sendAsync(request, HttpResponse.BodyHandlers.ofString())
-            .thenApply(res -> res.body())
-            .thenAccept(json -> SwingUtilities.invokeLater(() -> {
+            .thenAccept(res -> SwingUtilities.invokeLater(() -> {
                 model.setRowCount(0);
+                if (res.statusCode() != 200) {
+                    model.addRow(new Object[]{"ERRO " + res.statusCode(), "Verifique o endpoint", "no Servidor"});
+                    return;
+                }
                 try {
-                    List<Map<String, Object>> data = gson.fromJson(json, new TypeToken<List<Map<String, Object>>>(){}.getType());
-                    if (data != null) for (Map<String, Object> item : data) {
-                        Object[] row = new Object[jsonKeys.length];
-                        for (int i = 0; i < jsonKeys.length; i++) row[i] = (item.get(jsonKeys[i]) != null) ? item.get(jsonKeys[i]).toString() : "-";
-                        model.addRow(row);
+                    List<Map<String, Object>> data = gson.fromJson(res.body(), new TypeToken<List<Map<String, Object>>>(){}.getType());
+                    if (data != null && !data.isEmpty()) {
+                        for (Map<String, Object> item : data) {
+                            Object[] row = new Object[jsonKeys.length];
+                            for (int i = 0; i < jsonKeys.length; i++) {
+                                row[i] = (item.get(jsonKeys[i]) != null) ? item.get(jsonKeys[i]).toString() : "-";
+                            }
+                            model.addRow(row);
+                        }
                     }
-                } catch (Exception ignored) {}
+                } catch (Exception e) { System.err.println("Erro JSON: " + e.getMessage()); }
             })).exceptionally(ex -> null);
     }
 
