@@ -18,13 +18,13 @@ import javafx.util.Duration;
 
 import java.io.InputStream;
 import java.net.URI;
+import java.net.URL;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.StringJoiner;
 import java.util.prefs.Preferences;
 
@@ -40,7 +40,6 @@ public class Main {
         private static final Gson gson = new Gson();
 
         private StackPane masterPanel;
-        private BorderPane dashboardLayoutRoot;
         private StackPane dashboardContent;
         private VBox sidebarButtons;
 
@@ -62,23 +61,30 @@ public class Main {
         public void start(Stage primaryStage) {
             loadFonts();
             masterPanel = new StackPane();
+            masterPanel.getStyleClass().add("master-panel");
+
+            // Carregamento do CSS via Resource
             try {
-                masterPanel.getStylesheets().add(Objects.requireNonNull(getClass().getResource("/assets/style.css")).toExternalForm());
+                URL cssUrl = getClass().getResource("/assets/style.css");
+                if (cssUrl != null) {
+                    masterPanel.getStylesheets().add(cssUrl.toExternalForm());
+                }
             } catch (Exception e) {
                 System.err.println("Erro ao carregar CSS: " + e.getMessage());
             }
 
             Scene scene = new Scene(masterPanel, 1200, 800);
             primaryStage.setTitle("Motor Pro | Management System");
-            primaryStage.setScene(scene);
-            primaryStage.setMaximized(true);
 
             try {
                 InputStream is = getClass().getResourceAsStream("/assets/perfil.png");
                 if (is != null) primaryStage.getIcons().add(new Image(is));
             } catch (Exception ignored) {}
 
+            primaryStage.setScene(scene);
+            primaryStage.setMaximized(true);
             primaryStage.show();
+
             showScreen("LAUNCH");
         }
 
@@ -92,10 +98,7 @@ public class Main {
                         case "LAUNCH": target = createLaunchScreen(); break;
                         case "LOGIN": target = createLoginScreen(); break;
                         case "REGISTER": target = createConfigScreen(true); break;
-                        case "DASHBOARD":
-                            target = createDashboardStructure();
-                            dashboardLayoutRoot = (BorderPane) target;
-                            break;
+                        case "DASHBOARD": target = createDashboardStructure(); break;
                     }
                     if (target != null) {
                         screenCache.put(screenName, target);
@@ -110,11 +113,12 @@ public class Main {
         }
 
         private Parent createLaunchScreen() {
-            VBox card = new VBox(25);
+            VBox card = new VBox(30);
             card.setAlignment(Pos.CENTER);
-            card.getStyleClass().add("root");
+            card.getStyleClass().add("dashboard-content");
+
             Label logo = new Label("MOTOR PRO");
-            logo.getStyleClass().add("label-logo");
+            logo.getStyleClass().add("content-title");
 
             Button btnLogin = createBigButton("ENTRAR NA MINHA OFICINA", "big-button-primary");
             btnLogin.setOnAction(e -> {
@@ -137,18 +141,21 @@ public class Main {
         private Parent createLoginScreen() {
             VBox container = new VBox();
             container.setAlignment(Pos.CENTER);
-            container.getStyleClass().add("root");
-            VBox card = new VBox(20);
+            container.getStyleClass().add("dashboard-content");
+
+            VBox card = new VBox(25);
             card.setAlignment(Pos.CENTER);
             card.setMaxSize(450, 400);
+            card.getStyleClass().add("form-card");
 
-            Label title = new Label("LOGIN");
-            title.getStyleClass().add("login-title");
-            TextField txtTel = createStyledTextField("TELEFONE DA OFICINA", "text-field-styled");
-            txtTel.setMaxWidth(450);
-            txtTel.setPrefHeight(70);
+            Label title = new Label("Acesse sua Oficina");
+            title.getStyleClass().add("form-card-title");
+
+            TextField txtTel = createStyledTextField("Digite o Telefone da Oficina", "text-field-styled");
+            txtTel.setMaxWidth(350);
 
             Button btnEntrar = createBigButton("ACESSAR SISTEMA", "big-button-primary");
+            btnEntrar.setPrefWidth(350);
             btnEntrar.setOnAction(e -> {
                 String tel = txtTel.getText().trim();
                 if (tel.isEmpty()) {
@@ -160,32 +167,37 @@ public class Main {
 
                 client.sendAsync(HttpRequest.newBuilder().uri(URI.create(BASE_URL + "oficinas")).build(),
                                 HttpResponse.BodyHandlers.ofString())
-                    .thenApply(HttpResponse::body)
-                    .thenAccept(json -> Platform.runLater(() -> {
-                        List<Map<String, Object>> items = gson.fromJson(json, new TypeToken<List<Map<String, Object>>>(){}.getType());
-                        String foundId = "";
-                        if (items != null) {
-                            for (Map<String, Object> item : items) {
-                                if (tel.equals(String.valueOf(item.get("telefone")))) {
-                                    foundId = String.valueOf(item.get("id"));
-                                    break;
+                        .thenApply(HttpResponse::body)
+                        .thenAccept(json -> Platform.runLater(() -> {
+                            try {
+                                List<Map<String, Object>> items = gson.fromJson(json, new TypeToken<List<Map<String, Object>>>(){}.getType());
+                                String foundId = "";
+                                if (items != null) {
+                                    for (Map<String, Object> item : items) {
+                                        if (tel.equals(String.valueOf(item.get("telefone")))) {
+                                            foundId = String.valueOf(item.get("id"));
+                                            break;
+                                        }
+                                    }
                                 }
+                                if (!foundId.isEmpty()) {
+                                    workshopId = foundId;
+                                    PREFS.put("workshopId", workshopId);
+                                    showScreen("DASHBOARD");
+                                } else {
+                                    showAlert(Alert.AlertType.ERROR, "Erro", "Oficina não encontrada.");
+                                    btnEntrar.setText("ACESSAR SISTEMA");
+                                    btnEntrar.setDisable(false);
+                                }
+                            } catch (Exception ex) {
+                                btnEntrar.setDisable(false);
+                                btnEntrar.setText("ACESSAR SISTEMA");
                             }
-                        }
-                        if (!foundId.isEmpty()) {
-                            workshopId = foundId;
-                            PREFS.put("workshopId", workshopId);
-                            showScreen("DASHBOARD");
-                        } else {
-                            showAlert(Alert.AlertType.ERROR, "Erro", "Oficina não encontrada com este telefone.");
-                            btnEntrar.setText("ACESSAR SISTEMA");
-                            btnEntrar.setDisable(false);
-                        }
-                    }));
+                        }));
             });
 
             Button btnBack = new Button("Voltar ao início");
-            btnBack.getStyleClass().add("link-button");
+            btnBack.getStyleClass().add("sidebar-button");
             btnBack.setOnAction(e -> showScreen("LAUNCH"));
 
             card.getChildren().addAll(title, txtTel, btnEntrar, btnBack);
@@ -196,18 +208,16 @@ public class Main {
         private Parent createConfigScreen(boolean isNew) {
             BorderPane main = new BorderPane();
             main.getStyleClass().add("dashboard-content");
-            main.setPadding(new Insets(50, 80, 50, 80));
+            main.setPadding(new Insets(50));
 
             HBox header = new HBox(20);
             header.setAlignment(Pos.CENTER_LEFT);
             Label lblT = new Label(isNew ? "NOVA OFICINA" : "MEUS DADOS");
             lblT.getStyleClass().add("content-title");
-            
+
             Button btnSave = new Button("SALVAR ALTERAÇÕES");
-            btnSave.getStyleClass().addAll("big-button", "big-button-primary");
-            btnSave.setPrefWidth(240);
-            btnSave.setPrefHeight(65);
-            btnSave.setFont(Font.font("Sora", 13)); // Ajuste de fonte para o botão
+            btnSave.getStyleClass().add("big-button-primary");
+            btnSave.setPrefSize(240, 50);
 
             Region spacer = new Region();
             HBox.setHgrow(spacer, Priority.ALWAYS);
@@ -216,40 +226,37 @@ public class Main {
 
             GridPane grid = new GridPane();
             grid.setHgap(30);
-            grid.setVgap(20); // Espaçamento vertical entre os campos
-            grid.setPadding(new Insets(40, 0, 0, 0)); // Espaçamento do topo do grid
+            grid.setVgap(20);
+            grid.setPadding(new Insets(30, 0, 0, 0));
 
-            // Coluna 1: Dados da oficina
             VBox c1 = createFormCard("INFORMAÇÕES BÁSICAS");
-            TextField txtNome = createStyledTextField("NOME DA OFICINA", "text-field-form");
-            TextField txtEndereco = createStyledTextField("ENDEREÇO COMPLETO", "text-field-form");
-            TextField txtTelefone = createStyledTextField("TELEFONE (ACESSO)", "text-field-form");
-            TextField txtLat = createStyledTextField("LATITUDE", "text-field-form");
-            TextField txtLon = createStyledTextField("LONGITUDE", "text-field-form");
+            TextField txtNome = createStyledTextField("NOME DA OFICINA", "text-field-styled");
+            TextField txtEndereco = createStyledTextField("ENDEREÇO COMPLETO", "text-field-styled");
+            TextField txtTelefone = createStyledTextField("TELEFONE (ACESSO)", "text-field-styled");
+            TextField txtLat = createStyledTextField("LATITUDE", "text-field-styled");
+            TextField txtLon = createStyledTextField("LONGITUDE", "text-field-styled");
 
             c1.getChildren().addAll(txtNome, txtEndereco, txtTelefone, txtLat, txtLon);
-            GridPane.setConstraints(c1, 0, 0);
+            grid.add(c1, 0, 0);
 
-            // Coluna 2: Serviços
             VBox c2 = createFormCard("SERVIÇOS PRESTADOS");
             String[] std = {"Freios", "Suspensão", "Motor", "Óleo", "Revisão", "Elétrica", "Alinhamento", "Pneus"};
             List<CheckBox> cbs = new java.util.ArrayList<>();
-            VBox cg = new VBox(10); // Espaçamento entre os checkboxes
+            VBox cg = new VBox(10);
             cg.setPadding(new Insets(10));
-            cg.setStyle("-fx-background-color: white;"); // Fundo branco para os checkboxes
+            cg.setStyle("-fx-background-color: white;");
             for (String s : std) {
                 CheckBox b = new CheckBox(s);
-                b.getStyleClass().add("check-box");
                 cbs.add(b);
                 cg.getChildren().add(b);
             }
             ScrollPane sp = new ScrollPane(cg);
             sp.setFitToWidth(true);
-            sp.setStyle("-fx-background-color: transparent; -fx-border-color: transparent;"); // Remove borda e fundo do scrollpane
+            sp.setPrefHeight(300);
+            sp.getStyleClass().add("table-view");
             c2.getChildren().add(sp);
-            GridPane.setConstraints(c2, 1, 0);
+            grid.add(c2, 1, 0);
 
-            grid.getChildren().addAll(c1, c2);
             main.setCenter(grid);
 
             btnSave.setOnAction(e -> {
@@ -263,56 +270,34 @@ public class Main {
                 btnSave.setText("PROCESSANDO...");
                 btnSave.setDisable(true);
 
-                client.sendAsync(HttpRequest.newBuilder().uri(URI.create(BASE_URL + "oficinas")).build(),
-                                HttpResponse.BodyHandlers.ofString())
-                    .thenApply(HttpResponse::body)
-                    .thenAccept(json -> Platform.runLater(() -> {
-                        List<Map<String, Object>> items = gson.fromJson(json, new TypeToken<List<Map<String, Object>>>(){}.getType());
-                        boolean exists = false;
-                        if (items != null && isNew) {
-                            for (Map<String, Object> item : items) {
-                                if (telInput.equals(String.valueOf(item.get("telefone")))) {
-                                    exists = true;
-                                    break;
-                                }
-                            }
-                        }
+                StringJoiner sj = new StringJoiner(",");
+                for (CheckBox b : cbs) if (b.isSelected()) sj.add(b.getText());
 
-                        if (exists) {
-                            showAlert(Alert.AlertType.WARNING, "Aviso", "Telefone já cadastrado.");
-                            btnSave.setText("SALVAR ALTERAÇÕES");
-                            btnSave.setDisable(false);
-                        } else {
-                            StringJoiner sj = new StringJoiner(",");
-                            for (CheckBox b : cbs) if (b.isSelected()) sj.add(b.getText());
+                Map<String, Object> data = new HashMap<>();
+                data.put("nome", nomeInput);
+                data.put("endereco", txtEndereco.getText().trim());
+                data.put("telefone", telInput);
+                data.put("servicos", sj.toString());
+                try {
+                    data.put("latitude", Double.parseDouble(txtLat.getText().trim()));
+                    data.put("longitude", Double.parseDouble(txtLon.getText().trim()));
+                } catch (Exception ex) {
+                    data.put("latitude", 0.0); data.put("longitude", 0.0);
+                }
 
-                            Map<String, Object> data = new HashMap<>();
-                            data.put("nome", nomeInput);
-                            data.put("endereco", txtEndereco.getText().trim());
-                            data.put("telefone", telInput);
-                            data.put("servicos", sj.toString());
-                            try {
-                                data.put("latitude", Double.parseDouble(txtLat.getText().trim()));
-                                data.put("longitude", Double.parseDouble(txtLon.getText().trim()));
-                            } catch (Exception ex) {
-                                data.put("latitude", 0.0); data.put("longitude", 0.0);
-                            }
+                String method = isNew ? "POST" : "PUT";
+                String endpoint = isNew ? "oficinas" : "oficinas/" + workshopId;
 
-                            String method = isNew ? "POST" : "PUT";
-                            String endpoint = isNew ? "oficinas" : "oficinas/" + workshopId;
-
-                            sendToAPI(method, endpoint, data).thenAccept(ok -> Platform.runLater(() -> {
-                                if (ok) {
-                                    showAlert(Alert.AlertType.INFORMATION, "Sucesso", "Dados atualizados!");
-                                    showScreen("DASHBOARD");
-                                } else {
-                                    showAlert(Alert.AlertType.ERROR, "Erro", "Erro ao salvar.");
-                                    btnSave.setText("SALVAR ALTERAÇÕES");
-                                    btnSave.setDisable(false);
-                                }
-                            }));
-                        }
-                    }));
+                sendToAPI(method, endpoint, data).thenAccept(ok -> Platform.runLater(() -> {
+                    if (ok) {
+                        showAlert(Alert.AlertType.INFORMATION, "Sucesso", "Dados salvos!");
+                        showScreen("DASHBOARD");
+                    } else {
+                        showAlert(Alert.AlertType.ERROR, "Erro", "Erro ao salvar.");
+                        btnSave.setText("SALVAR ALTERAÇÕES");
+                        btnSave.setDisable(false);
+                    }
+                }));
             });
 
             autoDetectLocation(txtEndereco, txtLat, txtLon);
@@ -321,15 +306,14 @@ public class Main {
 
         private BorderPane createDashboardStructure() {
             BorderPane dash = new BorderPane();
-            dash.getStyleClass().add("root");
+
             VBox sidebar = new VBox();
-            sidebar.setPrefWidth(320);
+            sidebar.setPrefWidth(280);
             sidebar.getStyleClass().add("sidebar");
+
             sidebarButtons = new VBox(10);
             sidebarButtons.setAlignment(Pos.TOP_LEFT);
-            sidebarButtons.setPadding(new Insets(30, 0, 0, 0));
 
-            // Botões do menu
             addMenuButton("📅", "AGENDAMENTOS", "appointments/oficina/" + workshopId,
                     new String[]{"Serviço", "Data/Hora", "Status"},
                     new String[]{"servico", "dataHora", "status"});
@@ -350,7 +334,7 @@ public class Main {
             VBox.setVgrow(spacer, Priority.ALWAYS);
             sidebarButtons.getChildren().add(spacer);
 
-            Button btnLogout = createSidebarBtn("🚪", "SAIR");
+            Button btnLogout = createSidebarBtn("🚪", "SAIR DO SISTEMA");
             btnLogout.setOnAction(e -> {
                 workshopId = "";
                 PREFS.put("workshopId", "");
@@ -358,7 +342,6 @@ public class Main {
                 showScreen("LAUNCH");
             });
             sidebarButtons.getChildren().add(btnLogout);
-            sidebarButtons.setPadding(new Insets(0, 0, 20, 0));
 
             sidebar.getChildren().add(sidebarButtons);
             dash.setLeft(sidebar);
@@ -367,40 +350,35 @@ public class Main {
             dashboardContent.getStyleClass().add("dashboard-content");
             dash.setCenter(dashboardContent);
 
-            // Auto-refresh a cada 5 segundos
-            Timeline fiveSecondsWonder = new Timeline(new KeyFrame(Duration.seconds(5), event -> {
+            Timeline autoRefresh = new Timeline(new KeyFrame(Duration.seconds(10), event -> {
                 if (currentActiveTab.equals("CONFIG_OFICINA")) return;
                 RefreshParams p = tabRefreshMap.get(currentActiveTab);
                 if (p != null) refreshData(p.endpoint, p.tableView, p.jsonKeys);
             }));
-            fiveSecondsWonder.setCycleCount(Timeline.INDEFINITE);
-            fiveSecondsWonder.play();
+            autoRefresh.setCycleCount(Timeline.INDEFINITE);
+            autoRefresh.play();
 
-            // Simula o clique no primeiro botão para carregar o conteúdo inicial
             if (!sidebarButtons.getChildren().isEmpty()) {
-                Button firstButton = (Button) sidebarButtons.getChildren().get(0);
-                firstButton.fire();
+                ((Button) sidebarButtons.getChildren().get(0)).fire();
             }
 
             return dash;
         }
 
         private void showDashboardContent(Parent content, String tabName) {
-            dashboardContent.getChildren().clear();
-            dashboardContent.getChildren().add(content);
-            StackPane.setAlignment(content, Pos.TOP_LEFT);
+            dashboardContent.getChildren().setAll(content);
         }
 
-        private void addMenuButton(String icon, String text, String endpoint, String[] cols, String[] keys) {
-            Button btn = createSidebarBtn(icon, text);
-            TableView<Map<String, Object>> tableView = createTableView(text, cols);
-            Parent viewPanel = createViewPanel(text, tableView);
-            
-            tabRefreshMap.put(text, new RefreshParams(endpoint, tableView, keys));
-            
+        private void addMenuButton(String icon, String title, String endpoint, String[] cols, String[] keys) {
+            Button btn = createSidebarBtn(icon, title);
+            TableView<Map<String, Object>> tableView = createTableView(cols, keys);
+            Parent viewPanel = createViewPanel(title, tableView);
+
+            tabRefreshMap.put(title, new RefreshParams(endpoint, tableView, keys));
+
             btn.setOnAction(e -> {
-                currentActiveTab = text;
-                showDashboardContent(viewPanel, text);
+                currentActiveTab = title;
+                showDashboardContent(viewPanel, title);
                 highlightButton(btn);
                 refreshData(endpoint, tableView, keys);
             });
@@ -409,7 +387,9 @@ public class Main {
 
         private Button createBigButton(String text, String styleClass) {
             Button btn = new Button(text);
-            btn.getStyleClass().addAll("big-button", styleClass);
+            btn.getStyleClass().add(styleClass);
+            btn.setPrefHeight(60);
+            btn.setMaxWidth(400);
             return btn;
         }
 
@@ -417,6 +397,8 @@ public class Main {
             Button btn = new Button(icon + "   " + text);
             btn.getStyleClass().add("sidebar-button");
             btn.setMaxWidth(Double.MAX_VALUE);
+            btn.setAlignment(Pos.CENTER_LEFT);
+            btn.setPadding(new Insets(12, 20, 12, 20));
             return btn;
         }
 
@@ -431,53 +413,44 @@ public class Main {
             TextField field = new TextField();
             field.setPromptText(prompt);
             field.getStyleClass().add(styleClass);
-            field.setPrefHeight(70); // Altura padrão para campos de formulário
             return field;
         }
 
         private VBox createFormCard(String title) {
-            VBox p = new VBox(15); // Espaçamento vertical entre os elementos do card
+            VBox p = new VBox(20);
             p.getStyleClass().add("form-card");
             Label l = new Label(title);
-            l.getStyleClass().add("form-card-title");
+            l.setStyle("-fx-font-weight: bold; -fx-text-fill: #1e293b; -fx-font-size: 16px;");
             p.getChildren().add(l);
             return p;
         }
 
-        private TableView<Map<String, Object>> createTableView(String title, String[] cols) {
+        private TableView<Map<String, Object>> createTableView(String[] cols, String[] keys) {
             TableView<Map<String, Object>> table = new TableView<>();
             table.getStyleClass().add("table-view");
-            table.setPrefHeight(Double.MAX_VALUE); // Ocupa todo o espaço vertical disponível
             table.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY);
 
-            for (String colName : cols) {
-                TableColumn<Map<String, Object>, String> column = new TableColumn<>(colName);
+            for (int i = 0; i < cols.length; i++) {
+                final String key = keys[i];
+                TableColumn<Map<String, Object>, String> column = new TableColumn<>(cols[i]);
                 column.setCellValueFactory(cellData -> {
-                    String key = cellData.getTableColumn().getText().toLowerCase().replace(" ", ""); // Converte "Data/Hora" para "datahora"
-                    if (key.equals("oficina")) key = "oficinaNome"; // Ajuste para o campo real da API
-                    return new SimpleStringProperty(String.valueOf(cellData.getValue().getOrDefault(key, "-")));
+                    Object val = cellData.getValue().get(key);
+                    return new SimpleStringProperty(val != null ? String.valueOf(val) : "-");
                 });
-                column.setStyle("-fx-alignment: CENTER;");
                 table.getColumns().add(column);
             }
             return table;
         }
 
         private Parent createViewPanel(String title, TableView<Map<String, Object>> table) {
-            VBox p = new VBox(50); // Espaçamento entre título e tabela
+            VBox p = new VBox(25);
             p.getStyleClass().add("dashboard-content");
-            p.setPadding(new Insets(60, 80, 60, 80));
 
-            String cleanTitle = title.replaceAll("[^\\p{L}\\p{Nd}\\s]", "").trim();
-            Label t = new Label(cleanTitle);
+            Label t = new Label(title);
             t.getStyleClass().add("content-title");
 
-            ScrollPane sp = new ScrollPane(table);
-            sp.setFitToWidth(true);
-            sp.setFitToHeight(true);
-            sp.getStyleClass().add("scroll-pane");
-
-            p.getChildren().addAll(t, sp);
+            VBox.setVgrow(table, Priority.ALWAYS);
+            p.getChildren().addAll(t, table);
             return p;
         }
 
@@ -493,7 +466,6 @@ public class Main {
 
         private java.util.concurrent.CompletableFuture<Boolean> sendToAPI(
                 String method, String endpoint, Object data) {
-
             String json = gson.toJson(data);
             HttpRequest.Builder rb = HttpRequest.newBuilder()
                     .uri(URI.create(BASE_URL + endpoint))
@@ -503,86 +475,51 @@ public class Main {
             else rb.PUT(HttpRequest.BodyPublishers.ofString(json));
 
             return client.sendAsync(rb.build(), HttpResponse.BodyHandlers.ofString())
-                    .thenApply(res -> {
-                        if (res.statusCode() == 201 || res.statusCode() == 200) {
-                            try {
-                                Map<String, Object> r = gson.fromJson(res.body(),
-                                        new TypeToken<Map<String, Object>>(){}.getType());
-                                if (r.containsKey("id")) {
-                                    workshopId = r.get("id").toString();
-                                    PREFS.put("workshopId", workshopId);
-                                }
-                            } catch (Exception ignored) {}
-                            return true;
-                        }
-                        return false;
-                    })
-                    .exceptionally(ex -> {
-                        Platform.runLater(() -> showAlert(Alert.AlertType.ERROR, "Erro de Conexão", "Não foi possível conectar à API."));
-                        return false;
-                    });
+                    .thenApply(res -> res.statusCode() == 201 || res.statusCode() == 200)
+                    .exceptionally(ex -> false);
         }
 
         private void refreshData(String endpoint, TableView<Map<String, Object>> tableView, String[] jsonKeys) {
-            if (workshopId.isEmpty() && endpoint.contains("oficina/")) {
-                tableView.getItems().clear();
-                return;
-            }
+            if (workshopId.isEmpty() && endpoint.contains("oficina/")) return;
 
-            client.sendAsync(
-                            HttpRequest.newBuilder().uri(URI.create(BASE_URL + endpoint)).build(),
+            client.sendAsync(HttpRequest.newBuilder().uri(URI.create(BASE_URL + endpoint)).build(),
                             HttpResponse.BodyHandlers.ofString())
-                    .thenApply(HttpResponse::body)
-                    .thenAccept(json -> Platform.runLater(() -> {
-                        tableView.getItems().clear();
-                        try {
-                            List<Map<String, Object>> items = gson.fromJson(json,
-                                    new TypeToken<List<Map<String, Object>>>(){}.getType());
-                            if (items != null) {
-                                for (Map<String, Object> item : items) {
-                                    Map<String, Object> rowData = new HashMap<>();
-                                    for (String key : jsonKeys) {
-                                        rowData.put(key, item.getOrDefault(key, "-"));
-                                    }
-                                    tableView.getItems().add(rowData);
-                                }
-                            }
-                        } catch (Exception ignored) {}
-                    }))
-                    .exceptionally(ex -> {
-                        Platform.runLater(() -> showAlert(Alert.AlertType.ERROR, "Erro de Dados", "Não foi possível carregar os dados."));
-                        return null;
+                    .thenApply(res -> res.statusCode() == 200 ? res.body() : null)
+                    .thenAccept(json -> {
+                        if (json == null) return;
+                        Platform.runLater(() -> {
+                            try {
+                                List<Map<String, Object>> items = gson.fromJson(json, new TypeToken<List<Map<String, Object>>>(){}.getType());
+                                if (items != null) tableView.getItems().setAll(items);
+                            } catch (Exception ignored) {}
+                        });
                     });
         }
 
         private void autoDetectLocation(TextField txtLoc, TextField txtLat, TextField txtLon) {
-            client.sendAsync(
-                            HttpRequest.newBuilder().uri(URI.create("http://ip-api.com/json/")).build(),
+            client.sendAsync(HttpRequest.newBuilder().uri(URI.create("http://ip-api.com/json/")).build(),
                             HttpResponse.BodyHandlers.ofString())
                     .thenApply(HttpResponse::body)
                     .thenAccept(json -> Platform.runLater(() -> {
                         try {
-                            Map<String, Object> data = gson.fromJson(json,
-                                    new TypeToken<Map<String, Object>>(){}.getType());
+                            Map<String, Object> data = gson.fromJson(json, new TypeToken<Map<String, Object>>(){}.getType());
                             if (data != null && "success".equals(data.get("status"))) {
-                                txtLat.setText(String.valueOf(data.get("lat")));
-                                txtLon.setText(String.valueOf(data.get("lon")));
-                                txtLoc.setText(data.get("city") + ", " + data.get("regionName"));
+                                if (txtLat.getText().isEmpty()) txtLat.setText(String.valueOf(data.get("lat")));
+                                if (txtLon.getText().isEmpty()) txtLon.setText(String.valueOf(data.get("lon")));
+                                if (txtLoc.getText().isEmpty()) txtLoc.setText(data.get("city") + ", " + data.get("regionName"));
                             }
                         } catch (Exception ignored) {}
-                    }))
-                    .exceptionally(ex -> {
-                        Platform.runLater(() -> showAlert(Alert.AlertType.ERROR, "Erro de Localização", "Não foi possível detectar a localização."));
-                        return null;
-                    });
+                    }));
         }
 
         private void loadFonts() {
             try {
-                Font.loadFont(Objects.requireNonNull(getClass().getResourceAsStream("/assets/Ardela.ttf")), 10);
-                Font.loadFont(Objects.requireNonNull(getClass().getResourceAsStream("/assets/Sora-Regular.ttf")), 10);
+                InputStream s1 = getClass().getResourceAsStream("/assets/Ardela.ttf");
+                if (s1 != null) Font.loadFont(s1, 12);
+                InputStream s2 = getClass().getResourceAsStream("/assets/Sora-Regular.ttf");
+                if (s2 != null) Font.loadFont(s2, 12);
             } catch (Exception e) {
-                System.err.println("Erro ao carregar fontes: " + e.getMessage());
+                System.err.println("Aviso: Falha ao carregar fontes personalizadas.");
             }
         }
     }
