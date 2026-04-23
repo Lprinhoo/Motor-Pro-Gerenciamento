@@ -21,7 +21,6 @@ import java.util.prefs.Preferences;
 
 public class Main extends JFrame {
 
-    // ─── URL da API nova ──────────────────────────────────────────────────────
     private static final String BASE_URL = "https://api-java-production-5e77.up.railway.app/api/";
     private static final HttpClient client = HttpClient.newBuilder()
             .connectTimeout(java.time.Duration.ofSeconds(15)).build();
@@ -40,7 +39,6 @@ public class Main extends JFrame {
     private CardLayout dashboardLayout;
     private JPanel sidebarButtons;
 
-    // ─── workshopId persistente via java.util.prefs ───────────────────────────
     private static final Preferences PREFS = Preferences.userNodeForPackage(Main.class);
     private String workshopId = PREFS.get("workshopId", "");
 
@@ -59,7 +57,10 @@ public class Main extends JFrame {
         setupWindow();
         masterLayout = new CardLayout();
         masterPanel = new JPanel(masterLayout);
+        
         masterPanel.add(createLaunchScreen(), "LAUNCH");
+        masterPanel.add(createLoginScreen(), "LOGIN");
+        
         add(masterPanel);
         masterLayout.show(masterPanel, "LAUNCH");
         setVisible(true);
@@ -88,20 +89,109 @@ public class Main extends JFrame {
         logo.setAlignmentX(0.5f);
         logo.setBorder(new EmptyBorder(0, 0, 80, 0));
 
-        JButton btn = new JButton("ENTRAR NO DASHBOARD");
-        btn.setBackground(PRIMARY_GREEN);
-        btn.setForeground(SOLID_BLACK);
-        btn.setFont(soraFont.deriveFont(Font.BOLD, 20f));
-        btn.setMaximumSize(new Dimension(500, 80));
-        btn.setAlignmentX(0.5f);
-        btn.setBorder(null);
-        btn.setCursor(new Cursor(Cursor.HAND_CURSOR));
-        btn.addActionListener(e -> showDashboard());
+        JButton btnLogin = createBigButton("ENTRAR NA MINHA OFICINA", PRIMARY_GREEN, SOLID_BLACK);
+        btnLogin.addActionListener(e -> {
+            if (!workshopId.isEmpty()) showDashboard();
+            else masterLayout.show(masterPanel, "LOGIN");
+        });
+
+        JButton btnRegister = createBigButton("CADASTRAR NOVA OFICINA", Color.DARK_GRAY, PURE_WHITE);
+        btnRegister.addActionListener(e -> {
+            workshopId = "";
+            PREFS.put("workshopId", "");
+            masterPanel.add(createConfigScreen(true), "REGISTER");
+            masterLayout.show(masterPanel, "REGISTER");
+        });
 
         card.add(logo);
-        card.add(btn);
+        card.add(btnLogin);
+        card.add(Box.createRigidArea(new Dimension(0, 20)));
+        card.add(btnRegister);
         container.add(card);
         return container;
+    }
+
+    private JPanel createLoginScreen() {
+        JPanel container = new JPanel(new GridBagLayout());
+        container.setBackground(SOLID_BLACK);
+        JPanel card = new JPanel();
+        card.setLayout(new BoxLayout(card, BoxLayout.Y_AXIS));
+        card.setBackground(SOLID_BLACK);
+        card.setPreferredSize(new Dimension(400, 300));
+
+        JLabel title = new JLabel("LOGIN");
+        title.setForeground(PURE_WHITE);
+        title.setFont(ardelaFont.deriveFont(32f));
+        title.setAlignmentX(0.5f);
+        title.setBorder(new EmptyBorder(0, 0, 40, 0));
+
+        JTextField txtTel = createStyledField("TELEFONE DA OFICINA", Color.DARK_GRAY, PURE_WHITE);
+        txtTel.setMaximumSize(new Dimension(400, 60));
+
+        JButton btnEntrar = createBigButton("ACESSAR SISTEMA", PRIMARY_GREEN, SOLID_BLACK);
+        btnEntrar.addActionListener(e -> {
+            String tel = txtTel.getText().trim();
+            if (tel.isEmpty()) return;
+            
+            btnEntrar.setText("BUSCANDO...");
+            btnEntrar.setEnabled(false);
+
+            client.sendAsync(HttpRequest.newBuilder().uri(URI.create(BASE_URL + "oficinas")).build(),
+                            HttpResponse.BodyHandlers.ofString())
+                .thenApply(HttpResponse::body)
+                .thenAccept(json -> SwingUtilities.invokeLater(() -> {
+                    List<Map<String, Object>> items = gson.fromJson(json, new TypeToken<List<Map<String, Object>>>(){}.getType());
+                    String foundId = "";
+                    if (items != null) {
+                        for (Map<String, Object> item : items) {
+                            if (tel.equals(String.valueOf(item.get("telefone")))) {
+                                foundId = String.valueOf(item.get("id"));
+                                break;
+                            }
+                        }
+                    }
+
+                    if (!foundId.isEmpty()) {
+                        workshopId = foundId;
+                        PREFS.put("workshopId", workshopId);
+                        showDashboard();
+                    } else {
+                        JOptionPane.showMessageDialog(this, "Oficina não encontrada com este telefone.", "Erro", JOptionPane.ERROR_MESSAGE);
+                        btnEntrar.setText("ACESSAR SISTEMA");
+                        btnEntrar.setEnabled(true);
+                    }
+                }));
+        });
+
+        JButton btnBack = new JButton("Voltar");
+        btnBack.setForeground(Color.GRAY);
+        btnBack.setContentAreaFilled(false);
+        btnBack.setBorder(null);
+        btnBack.setAlignmentX(0.5f);
+        btnBack.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        btnBack.addActionListener(e -> masterLayout.show(masterPanel, "LAUNCH"));
+
+        card.add(title);
+        card.add(txtTel);
+        card.add(Box.createRigidArea(new Dimension(0, 20)));
+        card.add(btnEntrar);
+        card.add(Box.createRigidArea(new Dimension(0, 10)));
+        card.add(btnBack);
+        container.add(card);
+        return container;
+    }
+
+    private JButton createBigButton(String text, Color bg, Color fg) {
+        JButton btn = new JButton(text);
+        btn.setBackground(bg);
+        btn.setForeground(fg);
+        btn.setFont(soraFont.deriveFont(Font.BOLD, 16f));
+        btn.setMaximumSize(new Dimension(400, 60));
+        btn.setAlignmentX(0.5f);
+        btn.setBorder(null);
+        btn.setFocusPainted(false);
+        btn.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        return btn;
     }
 
     private JPanel createConfigScreen(boolean isNew) {
@@ -115,7 +205,7 @@ public class Main extends JFrame {
         lblT.setFont(ardelaFont.deriveFont(52f));
         lblT.setForeground(SOLID_BLACK);
 
-        JButton btnSave = new JButton("SALVAR NO BANCO");
+        JButton btnSave = new JButton("FINALIZAR CADASTRO");
         btnSave.setBackground(PRIMARY_GREEN);
         btnSave.setForeground(SOLID_BLACK);
         btnSave.setFont(soraFont.deriveFont(Font.BOLD, 12f));
@@ -127,11 +217,10 @@ public class Main extends JFrame {
         JPanel grid = new JPanel(new GridLayout(1, 2, 25, 0));
         grid.setBackground(ICE_WHITE);
 
-        // Coluna 1: Dados da oficina — campos alinhados com a entidade Oficina da API
         JPanel c1 = createFormCard("DADOS DA OFICINA");
         JTextField txtNome     = createStyledField("NOME", PURE_WHITE, SOLID_BLACK);
         JTextField txtEndereco = createStyledField("ENDEREÇO", PURE_WHITE, SOLID_BLACK);
-        JTextField txtTelefone = createStyledField("TELEFONE", PURE_WHITE, SOLID_BLACK);
+        JTextField txtTelefone = createStyledField("TELEFONE (SERÁ SEU LOGIN)", PURE_WHITE, SOLID_BLACK);
         JTextField txtLat      = createStyledField("LATITUDE", PURE_WHITE, SOLID_BLACK);
         JTextField txtLon      = createStyledField("LONGITUDE", PURE_WHITE, SOLID_BLACK);
 
@@ -141,7 +230,6 @@ public class Main extends JFrame {
         c1.add(txtLat);       c1.add(Box.createRigidArea(new Dimension(0, 10)));
         c1.add(txtLon);
 
-        // Coluna 2: Serviços — armazenados como String separada por vírgula
         JPanel c2 = createFormCard("SERVIÇOS");
         String[] std = {"Freios", "Suspensão", "Motor", "Óleo", "Revisão", "Elétrica", "Alinhamento", "Pneus"};
         List<JCheckBox> cbs = new ArrayList<>();
@@ -161,42 +249,71 @@ public class Main extends JFrame {
         main.add(grid, BorderLayout.CENTER);
 
         btnSave.addActionListener(e -> {
-            btnSave.setText("ENVIANDO...");
-            btnSave.setEnabled(false);
-
-            // Monta serviços como String separada por vírgula (formato da API)
-            StringJoiner sj = new StringJoiner(",");
-            for (JCheckBox b : cbs) if (b.isSelected()) sj.add(b.getText());
-
-            Map<String, Object> data = new HashMap<>();
-            data.put("nome", txtNome.getText().trim());
-            data.put("endereco", txtEndereco.getText().trim()); // campo correto na API
-            data.put("telefone", txtTelefone.getText().trim());
-            data.put("servicos", sj.toString()); // String separada por vírgula
-            try {
-                data.put("latitude", Double.parseDouble(txtLat.getText().trim()));
-                data.put("longitude", Double.parseDouble(txtLon.getText().trim()));
-            } catch (Exception ex) {
-                data.put("latitude", 0.0);
-                data.put("longitude", 0.0);
+            String nomeInput = txtNome.getText().trim();
+            String telInput = txtTelefone.getText().trim();
+            if (nomeInput.isEmpty() || telInput.isEmpty()) {
+                JOptionPane.showMessageDialog(this, "Nome e Telefone são obrigatórios!");
+                return;
             }
 
-            String method   = isNew ? "POST" : "PUT";
-            String endpoint = isNew ? "oficinas" : "oficinas/" + workshopId;
+            btnSave.setText("VALIDANDO...");
+            btnSave.setEnabled(false);
 
-            sendToAPI(method, endpoint, data).thenAccept(ok ->
-                    SwingUtilities.invokeLater(() -> {
-                        btnSave.setText("SALVAR NO BANCO");
-                        btnSave.setEnabled(true);
-                        if (ok) {
-                            JOptionPane.showMessageDialog(this, "Oficina salva com sucesso!");
-                        } else {
-                            JOptionPane.showMessageDialog(this,
-                                    "Erro ao salvar. Verifique se todos os campos estão preenchidos.",
-                                    "Erro", JOptionPane.ERROR_MESSAGE);
+            client.sendAsync(HttpRequest.newBuilder().uri(URI.create(BASE_URL + "oficinas")).build(),
+                            HttpResponse.BodyHandlers.ofString())
+                .thenApply(HttpResponse::body)
+                .thenAccept(json -> {
+                    List<Map<String, Object>> items = gson.fromJson(json, new TypeToken<List<Map<String, Object>>>(){}.getType());
+                    boolean exists = false;
+                    if (items != null && isNew) {
+                        for (Map<String, Object> item : items) {
+                            if (telInput.equals(String.valueOf(item.get("telefone")))) {
+                                exists = true;
+                                break;
+                            }
                         }
-                    })
-            );
+                    }
+
+                    if (exists) {
+                        SwingUtilities.invokeLater(() -> {
+                            JOptionPane.showMessageDialog(this, "Este telefone já está vinculado a uma oficina!", "Aviso", JOptionPane.WARNING_MESSAGE);
+                            btnSave.setText("FINALIZAR CADASTRO");
+                            btnSave.setEnabled(true);
+                        });
+                    } else {
+                        SwingUtilities.invokeLater(() -> {
+                            btnSave.setText("ENVIANDO...");
+                            StringJoiner sj = new StringJoiner(",");
+                            for (JCheckBox b : cbs) if (b.isSelected()) sj.add(b.getText());
+
+                            Map<String, Object> data = new HashMap<>();
+                            data.put("nome", nomeInput);
+                            data.put("endereco", txtEndereco.getText().trim());
+                            data.put("telefone", telInput);
+                            data.put("servicos", sj.toString());
+                            try {
+                                data.put("latitude", Double.parseDouble(txtLat.getText().trim()));
+                                data.put("longitude", Double.parseDouble(txtLon.getText().trim()));
+                            } catch (Exception ex) {
+                                data.put("latitude", 0.0); data.put("longitude", 0.0);
+                            }
+
+                            String method = isNew ? "POST" : "PUT";
+                            String endpoint = isNew ? "oficinas" : "oficinas/" + workshopId;
+
+                            sendToAPI(method, endpoint, data).thenAccept(ok -> SwingUtilities.invokeLater(() -> {
+                                if (ok) {
+                                    JOptionPane.showMessageDialog(this, "Oficina cadastrada com sucesso!");
+                                    showDashboard();
+                                } else {
+                                    JOptionPane.showMessageDialog(this, "Erro ao salvar.", "Erro", JOptionPane.ERROR_MESSAGE);
+                                    btnSave.setText("FINALIZAR CADASTRO");
+                                    btnSave.setEnabled(true);
+                                }
+                            }));
+                        });
+                    }
+                });
         });
 
         autoDetectLocation(txtEndereco, txtLat, txtLon);
@@ -204,6 +321,7 @@ public class Main extends JFrame {
     }
 
     private void showDashboard() {
+        tabRefreshMap.clear();
         masterPanel.add(createDashboardStructure(), "DASHBOARD");
         masterLayout.show(masterPanel, "DASHBOARD");
     }
@@ -221,25 +339,32 @@ public class Main extends JFrame {
         sidebarButtons.setLayout(new BoxLayout(sidebarButtons, BoxLayout.Y_AXIS));
         sidebarButtons.setBackground(SOLID_BLACK);
 
-        // Agendamentos — campos do AppointmentDTO
-        addMenuButton("📅", "AGENDAMENTOS", "appointments/oficina/" + workshopId,
-                new String[]{"Oficina", "Serviço", "Data/Hora", "Status"},
-                new String[]{"oficinaNome", "servico", "dataHora", "status"});
+        addMenuButton("📅", "MEUS AGENDAMENTOS", "appointments/oficina/" + workshopId,
+                new String[]{"Serviço", "Data/Hora", "Status"},
+                new String[]{"servico", "dataHora", "status"});
 
-        // Lista de Oficinas — consulta todas as oficinas cadastradas
-        addMenuButton("🔍", "LISTA DE OFICINAS", "oficinas",
-                new String[]{"Nome", "Endereço", "Telefone", "Serviços"},
-                new String[]{"nome", "endereco", "telefone", "servicos"});
+        addMenuButton("🔍", "TODAS AS OFICINAS", "oficinas",
+                new String[]{"Nome", "Endereço", "Telefone"},
+                new String[]{"nome", "endereco", "telefone"});
 
-        // Adicionar/editar oficina
-        JButton btnAdd = createSidebarBtn("🏢", "GERENCIAR OFICINA");
-        dashboardContent.add(createConfigScreen(workshopId.isEmpty()), "CONFIG_OFICINA");
-        btnAdd.addActionListener(e -> {
+        JButton btnConfig = createSidebarBtn("⚙️", "DADOS DA OFICINA");
+        dashboardContent.add(createConfigScreen(false), "CONFIG_OFICINA");
+        btnConfig.addActionListener(e -> {
             currentActiveTab = "CONFIG_OFICINA";
             dashboardLayout.show(dashboardContent, "CONFIG_OFICINA");
-            highlightButton(btnAdd);
+            highlightButton(btnConfig);
         });
-        sidebarButtons.add(btnAdd);
+        sidebarButtons.add(btnConfig);
+        
+        sidebarButtons.add(Box.createVerticalGlue());
+        
+        JButton btnLogout = createSidebarBtn("🚪", "SAIR DO SISTEMA");
+        btnLogout.addActionListener(e -> {
+            workshopId = "";
+            PREFS.put("workshopId", "");
+            masterLayout.show(masterPanel, "LAUNCH");
+        });
+        sidebarButtons.add(btnLogout);
 
         sidebar.add(sidebarButtons, BorderLayout.CENTER);
         dash.add(sidebar, BorderLayout.WEST);
@@ -249,7 +374,6 @@ public class Main extends JFrame {
             ((JButton) sidebarButtons.getComponent(0)).doClick();
         }
 
-        // Auto-refresh a cada 5 segundos
         new javax.swing.Timer(5000, e -> {
             if (currentActiveTab.equals("CONFIG_OFICINA")) return;
             RefreshParams p = tabRefreshMap.get(currentActiveTab);
@@ -350,28 +474,26 @@ public class Main extends JFrame {
 
         return client.sendAsync(rb.build(), HttpResponse.BodyHandlers.ofString())
                 .thenApply(res -> {
-                    System.out.println("Status: " + res.statusCode() + " | Body: " + res.body());
-                    if (res.statusCode() == 201) {
+                    if (res.statusCode() == 201 || res.statusCode() == 200) {
                         try {
                             Map<String, Object> r = gson.fromJson(res.body(),
                                     new TypeToken<Map<String, Object>>(){}.getType());
-                            // Salva workshopId de forma persistente
-                            workshopId = r.get("id").toString();
-                            PREFS.put("workshopId", workshopId);
+                            if (r.containsKey("id")) {
+                                workshopId = r.get("id").toString();
+                                PREFS.put("workshopId", workshopId);
+                            }
                         } catch (Exception ignored) {}
+                        return true;
                     }
-                    return res.statusCode() >= 200 && res.statusCode() < 300;
+                    return false;
                 })
                 .exceptionally(ex -> false);
     }
 
     private void refreshData(String endpoint, DefaultTableModel model, String[] jsonKeys) {
-        if (endpoint.contains("null") || endpoint.contains("/")) {
-            // Se o workshopId ainda não foi salvo, mostra tabela vazia
-            if (workshopId.isEmpty() && endpoint.contains("oficina/")) {
-                model.setRowCount(0);
-                return;
-            }
+        if (workshopId.isEmpty() && endpoint.contains("oficina/")) {
+            model.setRowCount(0);
+            return;
         }
 
         client.sendAsync(
