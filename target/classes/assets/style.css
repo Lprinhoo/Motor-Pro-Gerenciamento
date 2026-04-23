@@ -1,0 +1,151 @@
+/* ==========================================================================
+   VARIÁVEIS DE TEMA ESCURO (DARK MODE)
+   ========================================================================== */
+.root {
+    /* Cores de Fundo e Destaque */
+    -fx-primary-color: #3b82f6;
+    -fx-primary-hover: #60a5fa;
+    -fx-sidebar-bg: #020617;        /* Fundo da barra lateral mais escuro */
+    -fx-bg-main: #0f172a;           /* Fundo principal (Slate 950) */
+    -fx-card-bg: #1e293b;           /* Fundo dos cards (Slate 800) */
+
+    /* Cores de Texto */
+    -fx-text-main: #f8fafc;         /* Branco para texto principal */
+    -fx-text-muted: #94a3b8;        /* Cinza para textos menores */
+    -fx-border-color-soft: #334155; /* Bordas sutis */
+
+    /* Tipografia Aumentada */
+    -fx-font-family: "Sora", sans-serif;
+}
+
+.master-panel {
+    -fx-background-color: -fx-bg-main;
+}
+
+/* ==========================================================================
+   SIDEBAR
+   ========================================================================== */
+.sidebar {
+    -fx-background-color: -fx-sidebar-bg;
+    -fx-padding: 40 15 20 15;
+    -fx-spacing: 12;
+}
+
+.sidebar-button {
+    -fx-background-color: transparent;
+    -fx-text-fill: -fx-text-muted;
+    -fx-font-size: 16px;            /* Fonte aumentada */
+    -fx-font-weight: 600;
+    -fx-background-radius: 10;
+    -fx-cursor: hand;
+    -fx-alignment: CENTER_LEFT;
+    -fx-padding: 14 20;             /* Mais respiro */
+}
+
+.sidebar-button:hover {
+    -fx-background-color: #1e293b;
+    -fx-text-fill: white;
+}
+
+.sidebar-button-selected {
+    -fx-background-color: -fx-primary-color;
+    -fx-text-fill: white;
+}
+
+/* ==========================================================================
+   CONTEÚDO PRINCIPAL
+   ========================================================================== */
+.dashboard-content {
+    -fx-background-color: -fx-bg-main;
+    -fx-padding: 40 60;
+}
+
+.content-title {
+    -fx-font-family: "Ardela";
+    -fx-font-size: 38px;            /* Título maior */
+    -fx-text-fill: -fx-text-main;
+}
+
+/* ==========================================================================
+   TABELAS (TABLE VIEW DARK)
+   ========================================================================== */
+.table-view {
+    -fx-background-color: -fx-card-bg;
+    -fx-background-radius: 12;
+    -fx-border-radius: 12;
+    -fx-border-color: -fx-border-color-soft;
+}
+
+.table-view .column-header-background {
+    -fx-background-color: #334155;
+}
+
+.table-view .column-header {
+    -fx-background-color: transparent;
+    -fx-size: 50;
+}
+
+.table-view .column-header .label {
+    -fx-text-fill: white;
+    -fx-font-weight: bold;
+    -fx-font-size: 14px;
+}
+
+.table-view .table-row-cell {
+    -fx-cell-size: 55;
+    -fx-background-color: -fx-card-bg;
+    -fx-text-fill: white;
+    -fx-border-color: transparent transparent #334155 transparent;
+}
+
+.table-view .table-row-cell:hover {
+    -fx-background-color: #334155;
+}
+
+/* ==========================================================================
+   FORM CARDS & INPUTS
+   ========================================================================== */
+.form-card {
+    -fx-background-color: -fx-card-bg;
+    -fx-padding: 35;
+    -fx-background-radius: 16;
+}
+
+.text-field-styled {
+    -fx-background-color: #0f172a;
+    -fx-border-color: #475569;
+    -fx-border-radius: 10;
+    -fx-background-radius: 10;
+    -fx-padding: 14 18;
+    -fx-font-size: 15px;            /* Fonte aumentada */
+    -fx-text-fill: white;
+}
+
+.text-field-styled:focused {
+    -fx-border-color: -fx-primary-color;
+    -fx-border-width: 2;
+}
+
+/* ==========================================================================
+   BOTÕES
+   ========================================================================== */
+.big-button-primary {
+    -fx-background-color: -fx-primary-color;
+    -fx-text-fill: white;
+    -fx-font-weight: bold;
+    -fx-font-size: 16px;            /* Fonte aumentada */
+    -fx-background-radius: 12;
+}
+
+.big-button-secondary {
+    -fx-background-color: transparent;
+    -fx-border-color: #475569;
+    -fx-text-fill: white;
+    -fx-font-size: 16px;
+    -fx-background-radius: 12;
+}
+
+.check-box {
+    -fx-text-fill: white;
+    -fx-font-size: 14px;
+}
