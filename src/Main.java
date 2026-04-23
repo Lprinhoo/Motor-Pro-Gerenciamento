@@ -1,290 +1,290 @@
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
+import javafx.animation.KeyFrame;
+import javafx.animation.Timeline;
+import javafx.application.Application;
+import javafx.application.Platform;
+import javafx.beans.property.SimpleStringProperty;
+import javafx.geometry.Insets;
+import javafx.geometry.Pos;
+import javafx.scene.Parent;
+import javafx.scene.Scene;
+import javafx.scene.control.*;
+import javafx.scene.image.Image;
+import javafx.scene.layout.*;
+import javafx.scene.text.Font;
+import javafx.stage.Stage;
+import javafx.util.Duration;
 
-import javax.imageio.ImageIO;
-import javax.swing.*;
-import javax.swing.border.CompoundBorder;
-import javax.swing.border.EmptyBorder;
-import javax.swing.border.LineBorder;
-import javax.swing.table.DefaultTableCellRenderer;
-import javax.swing.table.DefaultTableModel;
-import javax.swing.table.JTableHeader;
-import java.awt.*;
 import java.io.InputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.util.*;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.StringJoiner;
 import java.util.prefs.Preferences;
 
-public class Main extends JFrame {
+public class Main {
+    public static void main(String[] args) {
+        Application.launch(App.class, args);
+    }
 
-    private static final String BASE_URL = "https://api-java-production-5e77.up.railway.app/api/";
-    private static final HttpClient client = HttpClient.newBuilder()
-            .connectTimeout(java.time.Duration.ofSeconds(15)).build();
-    private static final Gson gson = new Gson();
+    public static class App extends Application {
+        private static final String BASE_URL = "https://api-java-production-5e77.up.railway.app/api/";
+        private static final HttpClient client = HttpClient.newBuilder()
+                .connectTimeout(java.time.Duration.ofSeconds(15)).build();
+        private static final Gson gson = new Gson();
 
-    private static final Color PRIMARY_GREEN  = Color.decode("#16BC4E");
-    private static final Color SOLID_BLACK    = Color.decode("#0B0B0B");
-    private static final Color ICE_WHITE      = Color.decode("#F5F6FC");
-    private static final Color PURE_WHITE     = Color.decode("#FFFFFF");
-    private static final Color SIDEBAR_SELECTED = Color.decode("#1A1A1A");
+        private StackPane masterPanel;
+        private BorderPane dashboardLayoutRoot;
+        private StackPane dashboardContent;
+        private VBox sidebarButtons;
 
-    private Font ardelaFont, soraFont;
-    private CardLayout masterLayout;
-    private JPanel masterPanel;
-    private JPanel dashboardContent;
-    private CardLayout dashboardLayout;
-    private JPanel sidebarButtons;
+        private static final Preferences PREFS = Preferences.userNodeForPackage(Main.class);
+        private String workshopId = PREFS.get("workshopId", "");
 
-    private static final Preferences PREFS = Preferences.userNodeForPackage(Main.class);
-    private String workshopId = PREFS.get("workshopId", "");
+        private String currentActiveTab = "AGENDAMENTOS";
+        private final Map<String, Parent> screenCache = new HashMap<>();
+        private final Map<String, RefreshParams> tabRefreshMap = new HashMap<>();
 
-    private String currentActiveTab = "AGENDAMENTOS";
-    private Map<String, RefreshParams> tabRefreshMap = new HashMap<>();
-
-    private static class RefreshParams {
-        String endpoint; DefaultTableModel model; String[] jsonKeys;
-        RefreshParams(String e, DefaultTableModel m, String[] k) {
-            this.endpoint = e; this.model = m; this.jsonKeys = k;
+        private static class RefreshParams {
+            String endpoint; TableView<Map<String, Object>> tableView; String[] jsonKeys;
+            RefreshParams(String e, TableView<Map<String, Object>> tv, String[] k) {
+                this.endpoint = e; this.tableView = tv; this.jsonKeys = k;
+            }
         }
-    }
 
-    public Main() {
-        loadFonts();
-        setupWindow();
-        masterLayout = new CardLayout();
-        masterPanel = new JPanel(masterLayout);
-        
-        masterPanel.add(createLaunchScreen(), "LAUNCH");
-        masterPanel.add(createLoginScreen(), "LOGIN");
-        
-        add(masterPanel);
-        masterLayout.show(masterPanel, "LAUNCH");
-        setVisible(true);
-    }
-
-    private void setupWindow() {
-        setTitle("Motor Pro | Management System");
-        setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        setExtendedState(JFrame.MAXIMIZED_BOTH);
-        try {
-            InputStream is = getClass().getResourceAsStream("/assets/perfil.png");
-            if (is != null) setIconImage(ImageIO.read(is));
-        } catch (Exception ignored) {}
-    }
-
-    private JPanel createLaunchScreen() {
-        JPanel container = new JPanel(new GridBagLayout());
-        container.setBackground(SOLID_BLACK);
-        JPanel card = new JPanel();
-        card.setLayout(new BoxLayout(card, BoxLayout.Y_AXIS));
-        card.setBackground(SOLID_BLACK);
-
-        JLabel logo = new JLabel("MOTOR PRO");
-        logo.setForeground(PURE_WHITE);
-        logo.setFont(ardelaFont.deriveFont(64f));
-        logo.setAlignmentX(0.5f);
-        logo.setBorder(new EmptyBorder(0, 0, 80, 0));
-
-        JButton btnLogin = createBigButton("ENTRAR NA MINHA OFICINA", PRIMARY_GREEN, SOLID_BLACK);
-        btnLogin.addActionListener(e -> {
-            if (!workshopId.isEmpty()) showDashboard();
-            else masterLayout.show(masterPanel, "LOGIN");
-        });
-
-        JButton btnRegister = createBigButton("CADASTRAR NOVA OFICINA", Color.DARK_GRAY, PURE_WHITE);
-        btnRegister.addActionListener(e -> {
-            workshopId = "";
-            PREFS.put("workshopId", "");
-            masterPanel.add(createConfigScreen(true), "REGISTER");
-            masterLayout.show(masterPanel, "REGISTER");
-        });
-
-        card.add(logo);
-        card.add(btnLogin);
-        card.add(Box.createRigidArea(new Dimension(0, 20)));
-        card.add(btnRegister);
-        container.add(card);
-        return container;
-    }
-
-    private JPanel createLoginScreen() {
-        JPanel container = new JPanel(new GridBagLayout());
-        container.setBackground(SOLID_BLACK);
-        JPanel card = new JPanel();
-        card.setLayout(new BoxLayout(card, BoxLayout.Y_AXIS));
-        card.setBackground(SOLID_BLACK);
-        card.setPreferredSize(new Dimension(400, 300));
-
-        JLabel title = new JLabel("LOGIN");
-        title.setForeground(PURE_WHITE);
-        title.setFont(ardelaFont.deriveFont(32f));
-        title.setAlignmentX(0.5f);
-        title.setBorder(new EmptyBorder(0, 0, 40, 0));
-
-        JTextField txtTel = createStyledField("TELEFONE DA OFICINA", Color.DARK_GRAY, PURE_WHITE);
-        txtTel.setMaximumSize(new Dimension(400, 60));
-
-        JButton btnEntrar = createBigButton("ACESSAR SISTEMA", PRIMARY_GREEN, SOLID_BLACK);
-        btnEntrar.addActionListener(e -> {
-            String tel = txtTel.getText().trim();
-            if (tel.isEmpty()) return;
-            
-            btnEntrar.setText("BUSCANDO...");
-            btnEntrar.setEnabled(false);
-
-            client.sendAsync(HttpRequest.newBuilder().uri(URI.create(BASE_URL + "oficinas")).build(),
-                            HttpResponse.BodyHandlers.ofString())
-                .thenApply(HttpResponse::body)
-                .thenAccept(json -> SwingUtilities.invokeLater(() -> {
-                    List<Map<String, Object>> items = gson.fromJson(json, new TypeToken<List<Map<String, Object>>>(){}.getType());
-                    String foundId = "";
-                    if (items != null) {
-                        for (Map<String, Object> item : items) {
-                            if (tel.equals(String.valueOf(item.get("telefone")))) {
-                                foundId = String.valueOf(item.get("id"));
-                                break;
-                            }
-                        }
-                    }
-
-                    if (!foundId.isEmpty()) {
-                        workshopId = foundId;
-                        PREFS.put("workshopId", workshopId);
-                        showDashboard();
-                    } else {
-                        JOptionPane.showMessageDialog(this, "Oficina não encontrada com este telefone.", "Erro", JOptionPane.ERROR_MESSAGE);
-                        btnEntrar.setText("ACESSAR SISTEMA");
-                        btnEntrar.setEnabled(true);
-                    }
-                }));
-        });
-
-        JButton btnBack = new JButton("Voltar");
-        btnBack.setForeground(Color.GRAY);
-        btnBack.setContentAreaFilled(false);
-        btnBack.setBorder(null);
-        btnBack.setAlignmentX(0.5f);
-        btnBack.setCursor(new Cursor(Cursor.HAND_CURSOR));
-        btnBack.addActionListener(e -> masterLayout.show(masterPanel, "LAUNCH"));
-
-        card.add(title);
-        card.add(txtTel);
-        card.add(Box.createRigidArea(new Dimension(0, 20)));
-        card.add(btnEntrar);
-        card.add(Box.createRigidArea(new Dimension(0, 10)));
-        card.add(btnBack);
-        container.add(card);
-        return container;
-    }
-
-    private JButton createBigButton(String text, Color bg, Color fg) {
-        JButton btn = new JButton(text);
-        btn.setBackground(bg);
-        btn.setForeground(fg);
-        btn.setFont(soraFont.deriveFont(Font.BOLD, 16f));
-        btn.setMaximumSize(new Dimension(400, 60));
-        btn.setAlignmentX(0.5f);
-        btn.setBorder(null);
-        btn.setFocusPainted(false);
-        btn.setCursor(new Cursor(Cursor.HAND_CURSOR));
-        return btn;
-    }
-
-    private JPanel createConfigScreen(boolean isNew) {
-        JPanel main = new JPanel(new BorderLayout(0, 30));
-        main.setBackground(ICE_WHITE);
-        main.setBorder(new EmptyBorder(40, 60, 40, 60));
-
-        JPanel header = new JPanel(new BorderLayout());
-        header.setBackground(ICE_WHITE);
-        JLabel lblT = new JLabel(isNew ? "NOVA OFICINA" : "EDITAR OFICINA");
-        lblT.setFont(ardelaFont.deriveFont(52f));
-        lblT.setForeground(SOLID_BLACK);
-
-        JButton btnSave = new JButton("FINALIZAR CADASTRO");
-        btnSave.setBackground(PRIMARY_GREEN);
-        btnSave.setForeground(SOLID_BLACK);
-        btnSave.setFont(soraFont.deriveFont(Font.BOLD, 12f));
-        btnSave.setPreferredSize(new Dimension(220, 60));
-        header.add(lblT, BorderLayout.WEST);
-        header.add(btnSave, BorderLayout.EAST);
-        main.add(header, BorderLayout.NORTH);
-
-        JPanel grid = new JPanel(new GridLayout(1, 2, 25, 0));
-        grid.setBackground(ICE_WHITE);
-
-        JPanel c1 = createFormCard("DADOS DA OFICINA");
-        JTextField txtNome     = createStyledField("NOME", PURE_WHITE, SOLID_BLACK);
-        JTextField txtEndereco = createStyledField("ENDEREÇO", PURE_WHITE, SOLID_BLACK);
-        JTextField txtTelefone = createStyledField("TELEFONE (SERÁ SEU LOGIN)", PURE_WHITE, SOLID_BLACK);
-        JTextField txtLat      = createStyledField("LATITUDE", PURE_WHITE, SOLID_BLACK);
-        JTextField txtLon      = createStyledField("LONGITUDE", PURE_WHITE, SOLID_BLACK);
-
-        c1.add(txtNome);      c1.add(Box.createRigidArea(new Dimension(0, 10)));
-        c1.add(txtEndereco);  c1.add(Box.createRigidArea(new Dimension(0, 10)));
-        c1.add(txtTelefone);  c1.add(Box.createRigidArea(new Dimension(0, 10)));
-        c1.add(txtLat);       c1.add(Box.createRigidArea(new Dimension(0, 10)));
-        c1.add(txtLon);
-
-        JPanel c2 = createFormCard("SERVIÇOS");
-        String[] std = {"Freios", "Suspensão", "Motor", "Óleo", "Revisão", "Elétrica", "Alinhamento", "Pneus"};
-        List<JCheckBox> cbs = new ArrayList<>();
-        JPanel cg = new JPanel(new GridLayout(0, 1, 0, 5));
-        cg.setBackground(PURE_WHITE);
-        for (String s : std) {
-            JCheckBox b = new JCheckBox(s);
-            b.setBackground(PURE_WHITE);
-            b.setFont(soraFont.deriveFont(12f));
-            cbs.add(b);
-            cg.add(b);
-        }
-        c2.add(new JScrollPane(cg));
-
-        grid.add(c1);
-        grid.add(c2);
-        main.add(grid, BorderLayout.CENTER);
-
-        btnSave.addActionListener(e -> {
-            String nomeInput = txtNome.getText().trim();
-            String telInput = txtTelefone.getText().trim();
-            if (nomeInput.isEmpty() || telInput.isEmpty()) {
-                JOptionPane.showMessageDialog(this, "Nome e Telefone são obrigatórios!");
-                return;
+        @Override
+        public void start(Stage primaryStage) {
+            loadFonts();
+            masterPanel = new StackPane();
+            try {
+                masterPanel.getStylesheets().add(Objects.requireNonNull(getClass().getResource("/assets/style.css")).toExternalForm());
+            } catch (Exception e) {
+                System.err.println("Erro ao carregar CSS: " + e.getMessage());
             }
 
-            btnSave.setText("VALIDANDO...");
-            btnSave.setEnabled(false);
+            Scene scene = new Scene(masterPanel, 1200, 800);
+            primaryStage.setTitle("Motor Pro | Management System");
+            primaryStage.setScene(scene);
+            primaryStage.setMaximized(true);
 
-            client.sendAsync(HttpRequest.newBuilder().uri(URI.create(BASE_URL + "oficinas")).build(),
-                            HttpResponse.BodyHandlers.ofString())
-                .thenApply(HttpResponse::body)
-                .thenAccept(json -> {
-                    List<Map<String, Object>> items = gson.fromJson(json, new TypeToken<List<Map<String, Object>>>(){}.getType());
-                    boolean exists = false;
-                    if (items != null && isNew) {
-                        for (Map<String, Object> item : items) {
-                            if (telInput.equals(String.valueOf(item.get("telefone")))) {
-                                exists = true;
-                                break;
+            try {
+                InputStream is = getClass().getResourceAsStream("/assets/perfil.png");
+                if (is != null) primaryStage.getIcons().add(new Image(is));
+            } catch (Exception ignored) {}
+
+            primaryStage.show();
+            showScreen("LAUNCH");
+        }
+
+        private void showScreen(String screenName) {
+            Platform.runLater(() -> {
+                masterPanel.getChildren().forEach(node -> node.setVisible(false));
+                Parent target = screenCache.get(screenName);
+
+                if (target == null) {
+                    switch (screenName) {
+                        case "LAUNCH": target = createLaunchScreen(); break;
+                        case "LOGIN": target = createLoginScreen(); break;
+                        case "REGISTER": target = createConfigScreen(true); break;
+                        case "DASHBOARD":
+                            target = createDashboardStructure();
+                            dashboardLayoutRoot = (BorderPane) target;
+                            break;
+                    }
+                    if (target != null) {
+                        screenCache.put(screenName, target);
+                        masterPanel.getChildren().add(target);
+                    }
+                }
+                if (target != null) {
+                    target.setVisible(true);
+                    target.toFront();
+                }
+            });
+        }
+
+        private Parent createLaunchScreen() {
+            VBox card = new VBox(25);
+            card.setAlignment(Pos.CENTER);
+            card.getStyleClass().add("root");
+            Label logo = new Label("MOTOR PRO");
+            logo.getStyleClass().add("label-logo");
+
+            Button btnLogin = createBigButton("ENTRAR NA MINHA OFICINA", "big-button-primary");
+            btnLogin.setOnAction(e -> {
+                if (!workshopId.isEmpty()) showScreen("DASHBOARD");
+                else showScreen("LOGIN");
+            });
+
+            Button btnRegister = createBigButton("CADASTRAR NOVA OFICINA", "big-button-secondary");
+            btnRegister.setOnAction(e -> {
+                workshopId = "";
+                PREFS.put("workshopId", "");
+                screenCache.remove("REGISTER");
+                showScreen("REGISTER");
+            });
+
+            card.getChildren().addAll(logo, btnLogin, btnRegister);
+            return card;
+        }
+
+        private Parent createLoginScreen() {
+            VBox container = new VBox();
+            container.setAlignment(Pos.CENTER);
+            container.getStyleClass().add("root");
+            VBox card = new VBox(20);
+            card.setAlignment(Pos.CENTER);
+            card.setMaxSize(450, 400);
+
+            Label title = new Label("LOGIN");
+            title.getStyleClass().add("login-title");
+            TextField txtTel = createStyledTextField("TELEFONE DA OFICINA", "text-field-styled");
+            txtTel.setMaxWidth(450);
+            txtTel.setPrefHeight(70);
+
+            Button btnEntrar = createBigButton("ACESSAR SISTEMA", "big-button-primary");
+            btnEntrar.setOnAction(e -> {
+                String tel = txtTel.getText().trim();
+                if (tel.isEmpty()) {
+                    showAlert(Alert.AlertType.WARNING, "Aviso", "O telefone é obrigatório.");
+                    return;
+                }
+                btnEntrar.setText("BUSCANDO...");
+                btnEntrar.setDisable(true);
+
+                client.sendAsync(HttpRequest.newBuilder().uri(URI.create(BASE_URL + "oficinas")).build(),
+                                HttpResponse.BodyHandlers.ofString())
+                    .thenApply(HttpResponse::body)
+                    .thenAccept(json -> Platform.runLater(() -> {
+                        List<Map<String, Object>> items = gson.fromJson(json, new TypeToken<List<Map<String, Object>>>(){}.getType());
+                        String foundId = "";
+                        if (items != null) {
+                            for (Map<String, Object> item : items) {
+                                if (tel.equals(String.valueOf(item.get("telefone")))) {
+                                    foundId = String.valueOf(item.get("id"));
+                                    break;
+                                }
                             }
                         }
-                    }
+                        if (!foundId.isEmpty()) {
+                            workshopId = foundId;
+                            PREFS.put("workshopId", workshopId);
+                            showScreen("DASHBOARD");
+                        } else {
+                            showAlert(Alert.AlertType.ERROR, "Erro", "Oficina não encontrada com este telefone.");
+                            btnEntrar.setText("ACESSAR SISTEMA");
+                            btnEntrar.setDisable(false);
+                        }
+                    }));
+            });
 
-                    if (exists) {
-                        SwingUtilities.invokeLater(() -> {
-                            JOptionPane.showMessageDialog(this, "Este telefone já está vinculado a uma oficina!", "Aviso", JOptionPane.WARNING_MESSAGE);
-                            btnSave.setText("FINALIZAR CADASTRO");
-                            btnSave.setEnabled(true);
-                        });
-                    } else {
-                        SwingUtilities.invokeLater(() -> {
-                            btnSave.setText("ENVIANDO...");
+            Button btnBack = new Button("Voltar ao início");
+            btnBack.getStyleClass().add("link-button");
+            btnBack.setOnAction(e -> showScreen("LAUNCH"));
+
+            card.getChildren().addAll(title, txtTel, btnEntrar, btnBack);
+            container.getChildren().add(card);
+            return container;
+        }
+
+        private Parent createConfigScreen(boolean isNew) {
+            BorderPane main = new BorderPane();
+            main.getStyleClass().add("dashboard-content");
+            main.setPadding(new Insets(50, 80, 50, 80));
+
+            HBox header = new HBox(20);
+            header.setAlignment(Pos.CENTER_LEFT);
+            Label lblT = new Label(isNew ? "NOVA OFICINA" : "MEUS DADOS");
+            lblT.getStyleClass().add("content-title");
+            
+            Button btnSave = new Button("SALVAR ALTERAÇÕES");
+            btnSave.getStyleClass().addAll("big-button", "big-button-primary");
+            btnSave.setPrefWidth(240);
+            btnSave.setPrefHeight(65);
+            btnSave.setFont(Font.font("Sora", 13)); // Ajuste de fonte para o botão
+
+            Region spacer = new Region();
+            HBox.setHgrow(spacer, Priority.ALWAYS);
+            header.getChildren().addAll(lblT, spacer, btnSave);
+            main.setTop(header);
+
+            GridPane grid = new GridPane();
+            grid.setHgap(30);
+            grid.setVgap(20); // Espaçamento vertical entre os campos
+            grid.setPadding(new Insets(40, 0, 0, 0)); // Espaçamento do topo do grid
+
+            // Coluna 1: Dados da oficina
+            VBox c1 = createFormCard("INFORMAÇÕES BÁSICAS");
+            TextField txtNome = createStyledTextField("NOME DA OFICINA", "text-field-form");
+            TextField txtEndereco = createStyledTextField("ENDEREÇO COMPLETO", "text-field-form");
+            TextField txtTelefone = createStyledTextField("TELEFONE (ACESSO)", "text-field-form");
+            TextField txtLat = createStyledTextField("LATITUDE", "text-field-form");
+            TextField txtLon = createStyledTextField("LONGITUDE", "text-field-form");
+
+            c1.getChildren().addAll(txtNome, txtEndereco, txtTelefone, txtLat, txtLon);
+            GridPane.setConstraints(c1, 0, 0);
+
+            // Coluna 2: Serviços
+            VBox c2 = createFormCard("SERVIÇOS PRESTADOS");
+            String[] std = {"Freios", "Suspensão", "Motor", "Óleo", "Revisão", "Elétrica", "Alinhamento", "Pneus"};
+            List<CheckBox> cbs = new java.util.ArrayList<>();
+            VBox cg = new VBox(10); // Espaçamento entre os checkboxes
+            cg.setPadding(new Insets(10));
+            cg.setStyle("-fx-background-color: white;"); // Fundo branco para os checkboxes
+            for (String s : std) {
+                CheckBox b = new CheckBox(s);
+                b.getStyleClass().add("check-box");
+                cbs.add(b);
+                cg.getChildren().add(b);
+            }
+            ScrollPane sp = new ScrollPane(cg);
+            sp.setFitToWidth(true);
+            sp.setStyle("-fx-background-color: transparent; -fx-border-color: transparent;"); // Remove borda e fundo do scrollpane
+            c2.getChildren().add(sp);
+            GridPane.setConstraints(c2, 1, 0);
+
+            grid.getChildren().addAll(c1, c2);
+            main.setCenter(grid);
+
+            btnSave.setOnAction(e -> {
+                String nomeInput = txtNome.getText().trim();
+                String telInput = txtTelefone.getText().trim();
+                if (nomeInput.isEmpty() || telInput.isEmpty()) {
+                    showAlert(Alert.AlertType.WARNING, "Aviso", "Preencha os campos obrigatórios.");
+                    return;
+                }
+
+                btnSave.setText("PROCESSANDO...");
+                btnSave.setDisable(true);
+
+                client.sendAsync(HttpRequest.newBuilder().uri(URI.create(BASE_URL + "oficinas")).build(),
+                                HttpResponse.BodyHandlers.ofString())
+                    .thenApply(HttpResponse::body)
+                    .thenAccept(json -> Platform.runLater(() -> {
+                        List<Map<String, Object>> items = gson.fromJson(json, new TypeToken<List<Map<String, Object>>>(){}.getType());
+                        boolean exists = false;
+                        if (items != null && isNew) {
+                            for (Map<String, Object> item : items) {
+                                if (telInput.equals(String.valueOf(item.get("telefone")))) {
+                                    exists = true;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (exists) {
+                            showAlert(Alert.AlertType.WARNING, "Aviso", "Telefone já cadastrado.");
+                            btnSave.setText("SALVAR ALTERAÇÕES");
+                            btnSave.setDisable(false);
+                        } else {
                             StringJoiner sj = new StringJoiner(",");
-                            for (JCheckBox b : cbs) if (b.isSelected()) sj.add(b.getText());
+                            for (CheckBox b : cbs) if (b.isSelected()) sj.add(b.getText());
 
                             Map<String, Object> data = new HashMap<>();
                             data.put("nome", nomeInput);
@@ -301,288 +301,289 @@ public class Main extends JFrame {
                             String method = isNew ? "POST" : "PUT";
                             String endpoint = isNew ? "oficinas" : "oficinas/" + workshopId;
 
-                            sendToAPI(method, endpoint, data).thenAccept(ok -> SwingUtilities.invokeLater(() -> {
+                            sendToAPI(method, endpoint, data).thenAccept(ok -> Platform.runLater(() -> {
                                 if (ok) {
-                                    JOptionPane.showMessageDialog(this, "Oficina cadastrada com sucesso!");
-                                    showDashboard();
+                                    showAlert(Alert.AlertType.INFORMATION, "Sucesso", "Dados atualizados!");
+                                    showScreen("DASHBOARD");
                                 } else {
-                                    JOptionPane.showMessageDialog(this, "Erro ao salvar.", "Erro", JOptionPane.ERROR_MESSAGE);
-                                    btnSave.setText("FINALIZAR CADASTRO");
-                                    btnSave.setEnabled(true);
+                                    showAlert(Alert.AlertType.ERROR, "Erro", "Erro ao salvar.");
+                                    btnSave.setText("SALVAR ALTERAÇÕES");
+                                    btnSave.setDisable(false);
                                 }
                             }));
-                        });
-                    }
-                });
-        });
+                        }
+                    }));
+            });
 
-        autoDetectLocation(txtEndereco, txtLat, txtLon);
-        return main;
-    }
-
-    private void showDashboard() {
-        tabRefreshMap.clear();
-        masterPanel.add(createDashboardStructure(), "DASHBOARD");
-        masterLayout.show(masterPanel, "DASHBOARD");
-    }
-
-    private JPanel createDashboardStructure() {
-        JPanel dash = new JPanel(new BorderLayout());
-        dashboardLayout = new CardLayout();
-        dashboardContent = new JPanel(dashboardLayout);
-
-        JPanel sidebar = new JPanel(new BorderLayout());
-        sidebar.setPreferredSize(new Dimension(320, 0));
-        sidebar.setBackground(SOLID_BLACK);
-
-        sidebarButtons = new JPanel();
-        sidebarButtons.setLayout(new BoxLayout(sidebarButtons, BoxLayout.Y_AXIS));
-        sidebarButtons.setBackground(SOLID_BLACK);
-
-        addMenuButton("📅", "MEUS AGENDAMENTOS", "appointments/oficina/" + workshopId,
-                new String[]{"Serviço", "Data/Hora", "Status"},
-                new String[]{"servico", "dataHora", "status"});
-
-        addMenuButton("🔍", "TODAS AS OFICINAS", "oficinas",
-                new String[]{"Nome", "Endereço", "Telefone"},
-                new String[]{"nome", "endereco", "telefone"});
-
-        JButton btnConfig = createSidebarBtn("⚙️", "DADOS DA OFICINA");
-        dashboardContent.add(createConfigScreen(false), "CONFIG_OFICINA");
-        btnConfig.addActionListener(e -> {
-            currentActiveTab = "CONFIG_OFICINA";
-            dashboardLayout.show(dashboardContent, "CONFIG_OFICINA");
-            highlightButton(btnConfig);
-        });
-        sidebarButtons.add(btnConfig);
-        
-        sidebarButtons.add(Box.createVerticalGlue());
-        
-        JButton btnLogout = createSidebarBtn("🚪", "SAIR DO SISTEMA");
-        btnLogout.addActionListener(e -> {
-            workshopId = "";
-            PREFS.put("workshopId", "");
-            masterLayout.show(masterPanel, "LAUNCH");
-        });
-        sidebarButtons.add(btnLogout);
-
-        sidebar.add(sidebarButtons, BorderLayout.CENTER);
-        dash.add(sidebar, BorderLayout.WEST);
-        dash.add(dashboardContent, BorderLayout.CENTER);
-
-        if (sidebarButtons.getComponentCount() > 0) {
-            ((JButton) sidebarButtons.getComponent(0)).doClick();
+            autoDetectLocation(txtEndereco, txtLat, txtLon);
+            return main;
         }
 
-        new javax.swing.Timer(5000, e -> {
-            if (currentActiveTab.equals("CONFIG_OFICINA")) return;
-            RefreshParams p = tabRefreshMap.get(currentActiveTab);
-            if (p != null) refreshData(p.endpoint, p.model, p.jsonKeys);
-        }).start();
+        private BorderPane createDashboardStructure() {
+            BorderPane dash = new BorderPane();
+            dash.getStyleClass().add("root");
+            VBox sidebar = new VBox();
+            sidebar.setPrefWidth(320);
+            sidebar.getStyleClass().add("sidebar");
+            sidebarButtons = new VBox(10);
+            sidebarButtons.setAlignment(Pos.TOP_LEFT);
+            sidebarButtons.setPadding(new Insets(30, 0, 0, 0));
 
-        return dash;
-    }
+            // Botões do menu
+            addMenuButton("📅", "AGENDAMENTOS", "appointments/oficina/" + workshopId,
+                    new String[]{"Serviço", "Data/Hora", "Status"},
+                    new String[]{"servico", "dataHora", "status"});
 
-    private void addMenuButton(String icon, String text, String endpoint,
-                               String[] cols, String[] keys) {
-        JButton btn = createSidebarBtn(icon, text);
-        DefaultTableModel model = new DefaultTableModel(cols, 0) {
-            @Override public boolean isCellEditable(int r, int c) { return false; }
-        };
-        dashboardContent.add(createViewPanel(text, model), text);
-        tabRefreshMap.put(text, new RefreshParams(endpoint, model, keys));
-        btn.addActionListener(e -> {
-            currentActiveTab = text;
-            dashboardLayout.show(dashboardContent, text);
-            highlightButton(btn);
-            refreshData(endpoint, model, keys);
-        });
-        sidebarButtons.add(btn);
-    }
+            addMenuButton("🔍", "OFICINAS PARCEIRAS", "oficinas",
+                    new String[]{"Nome", "Endereço", "Telefone"},
+                    new String[]{"nome", "endereco", "telefone"});
 
-    private JButton createSidebarBtn(String icon, String text) {
-        JButton btn = new JButton("<html><body>" +
-                "<span style='font-family: Segoe UI Emoji; color: #FFFFFF;'>" + icon + "</span>" +
-                "&nbsp;&nbsp;<span style='font-family: Sora; color: #FFFFFF;'>" + text + "</span>" +
-                "</body></html>");
-        btn.setMaximumSize(new Dimension(320, 75));
-        btn.setBackground(SOLID_BLACK);
-        btn.setBorder(new EmptyBorder(0, 45, 0, 0));
-        btn.setFocusPainted(false);
-        btn.setBorderPainted(false);
-        btn.setHorizontalAlignment(SwingConstants.LEFT);
-        btn.setCursor(new Cursor(Cursor.HAND_CURSOR));
-        return btn;
-    }
+            Button btnConfig = createSidebarBtn("⚙️", "CONFIGURAÇÕES");
+            btnConfig.setOnAction(e -> {
+                currentActiveTab = "CONFIG_OFICINA";
+                showDashboardContent(createConfigScreen(false), "CONFIG_OFICINA");
+                highlightButton(btnConfig);
+            });
+            sidebarButtons.getChildren().add(btnConfig);
 
-    private void highlightButton(JButton btn) {
-        for (Component c : sidebarButtons.getComponents()) {
-            if (c instanceof JButton) {
-                c.setBackground(SOLID_BLACK);
-                ((JButton) c).setBorder(new EmptyBorder(0, 45, 0, 0));
+            Region spacer = new Region();
+            VBox.setVgrow(spacer, Priority.ALWAYS);
+            sidebarButtons.getChildren().add(spacer);
+
+            Button btnLogout = createSidebarBtn("🚪", "SAIR");
+            btnLogout.setOnAction(e -> {
+                workshopId = "";
+                PREFS.put("workshopId", "");
+                screenCache.clear();
+                showScreen("LAUNCH");
+            });
+            sidebarButtons.getChildren().add(btnLogout);
+            sidebarButtons.setPadding(new Insets(0, 0, 20, 0));
+
+            sidebar.getChildren().add(sidebarButtons);
+            dash.setLeft(sidebar);
+
+            dashboardContent = new StackPane();
+            dashboardContent.getStyleClass().add("dashboard-content");
+            dash.setCenter(dashboardContent);
+
+            // Auto-refresh a cada 5 segundos
+            Timeline fiveSecondsWonder = new Timeline(new KeyFrame(Duration.seconds(5), event -> {
+                if (currentActiveTab.equals("CONFIG_OFICINA")) return;
+                RefreshParams p = tabRefreshMap.get(currentActiveTab);
+                if (p != null) refreshData(p.endpoint, p.tableView, p.jsonKeys);
+            }));
+            fiveSecondsWonder.setCycleCount(Timeline.INDEFINITE);
+            fiveSecondsWonder.play();
+
+            // Simula o clique no primeiro botão para carregar o conteúdo inicial
+            if (!sidebarButtons.getChildren().isEmpty()) {
+                Button firstButton = (Button) sidebarButtons.getChildren().get(0);
+                firstButton.fire();
             }
-        }
-        btn.setBackground(SIDEBAR_SELECTED);
-        btn.setBorder(new CompoundBorder(
-                BorderFactory.createMatteBorder(0, 8, 0, 0, PRIMARY_GREEN),
-                new EmptyBorder(0, 37, 0, 0)));
-    }
 
-    private JPanel createViewPanel(String title, DefaultTableModel model) {
-        JPanel p = new JPanel(new BorderLayout(0, 40));
-        p.setBackground(ICE_WHITE);
-        p.setBorder(new EmptyBorder(60, 90, 60, 90));
-
-        String cleanTitle = title.replaceAll("[^\\p{L}\\p{Nd}\\s]", "").trim();
-        JLabel t = new JLabel(cleanTitle);
-        t.setFont(ardelaFont.deriveFont(52f));
-        t.setForeground(SOLID_BLACK);
-
-        JTable table = new JTable(model);
-        table.setRowHeight(75);
-        table.setFont(soraFont.deriveFont(16f));
-        table.setBackground(PURE_WHITE);
-        table.setGridColor(ICE_WHITE);
-
-        JTableHeader h = table.getTableHeader();
-        h.setBackground(PURE_WHITE);
-        h.setFont(soraFont.deriveFont(Font.BOLD, 18f));
-        h.setPreferredSize(new Dimension(0, 80));
-        h.setBorder(BorderFactory.createMatteBorder(0, 0, 4, 0, PRIMARY_GREEN));
-
-        DefaultTableCellRenderer cr = new DefaultTableCellRenderer();
-        cr.setHorizontalAlignment(JLabel.CENTER);
-        for (int i = 0; i < table.getColumnCount(); i++) {
-            table.getColumnModel().getColumn(i).setCellRenderer(cr);
+            return dash;
         }
 
-        p.add(t, BorderLayout.NORTH);
-        p.add(new JScrollPane(table), BorderLayout.CENTER);
-        return p;
-    }
+        private void showDashboardContent(Parent content, String tabName) {
+            dashboardContent.getChildren().clear();
+            dashboardContent.getChildren().add(content);
+            StackPane.setAlignment(content, Pos.TOP_LEFT);
+        }
 
-    private java.util.concurrent.CompletableFuture<Boolean> sendToAPI(
-            String method, String endpoint, Object data) {
+        private void addMenuButton(String icon, String text, String endpoint, String[] cols, String[] keys) {
+            Button btn = createSidebarBtn(icon, text);
+            TableView<Map<String, Object>> tableView = createTableView(text, cols);
+            Parent viewPanel = createViewPanel(text, tableView);
+            
+            tabRefreshMap.put(text, new RefreshParams(endpoint, tableView, keys));
+            
+            btn.setOnAction(e -> {
+                currentActiveTab = text;
+                showDashboardContent(viewPanel, text);
+                highlightButton(btn);
+                refreshData(endpoint, tableView, keys);
+            });
+            sidebarButtons.getChildren().add(btn);
+        }
 
-        String json = gson.toJson(data);
-        HttpRequest.Builder rb = HttpRequest.newBuilder()
-                .uri(URI.create(BASE_URL + endpoint))
-                .header("Content-Type", "application/json");
+        private Button createBigButton(String text, String styleClass) {
+            Button btn = new Button(text);
+            btn.getStyleClass().addAll("big-button", styleClass);
+            return btn;
+        }
 
-        if (method.equals("POST")) rb.POST(HttpRequest.BodyPublishers.ofString(json));
-        else rb.PUT(HttpRequest.BodyPublishers.ofString(json));
+        private Button createSidebarBtn(String icon, String text) {
+            Button btn = new Button(icon + "   " + text);
+            btn.getStyleClass().add("sidebar-button");
+            btn.setMaxWidth(Double.MAX_VALUE);
+            return btn;
+        }
 
-        return client.sendAsync(rb.build(), HttpResponse.BodyHandlers.ofString())
-                .thenApply(res -> {
-                    if (res.statusCode() == 201 || res.statusCode() == 200) {
+        private void highlightButton(Button selectedButton) {
+            sidebarButtons.getChildren().forEach(node -> {
+                if (node instanceof Button) node.getStyleClass().remove("sidebar-button-selected");
+            });
+            selectedButton.getStyleClass().add("sidebar-button-selected");
+        }
+
+        private TextField createStyledTextField(String prompt, String styleClass) {
+            TextField field = new TextField();
+            field.setPromptText(prompt);
+            field.getStyleClass().add(styleClass);
+            field.setPrefHeight(70); // Altura padrão para campos de formulário
+            return field;
+        }
+
+        private VBox createFormCard(String title) {
+            VBox p = new VBox(15); // Espaçamento vertical entre os elementos do card
+            p.getStyleClass().add("form-card");
+            Label l = new Label(title);
+            l.getStyleClass().add("form-card-title");
+            p.getChildren().add(l);
+            return p;
+        }
+
+        private TableView<Map<String, Object>> createTableView(String title, String[] cols) {
+            TableView<Map<String, Object>> table = new TableView<>();
+            table.getStyleClass().add("table-view");
+            table.setPrefHeight(Double.MAX_VALUE); // Ocupa todo o espaço vertical disponível
+            table.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY);
+
+            for (String colName : cols) {
+                TableColumn<Map<String, Object>, String> column = new TableColumn<>(colName);
+                column.setCellValueFactory(cellData -> {
+                    String key = cellData.getTableColumn().getText().toLowerCase().replace(" ", ""); // Converte "Data/Hora" para "datahora"
+                    if (key.equals("oficina")) key = "oficinaNome"; // Ajuste para o campo real da API
+                    return new SimpleStringProperty(String.valueOf(cellData.getValue().getOrDefault(key, "-")));
+                });
+                column.setStyle("-fx-alignment: CENTER;");
+                table.getColumns().add(column);
+            }
+            return table;
+        }
+
+        private Parent createViewPanel(String title, TableView<Map<String, Object>> table) {
+            VBox p = new VBox(50); // Espaçamento entre título e tabela
+            p.getStyleClass().add("dashboard-content");
+            p.setPadding(new Insets(60, 80, 60, 80));
+
+            String cleanTitle = title.replaceAll("[^\\p{L}\\p{Nd}\\s]", "").trim();
+            Label t = new Label(cleanTitle);
+            t.getStyleClass().add("content-title");
+
+            ScrollPane sp = new ScrollPane(table);
+            sp.setFitToWidth(true);
+            sp.setFitToHeight(true);
+            sp.getStyleClass().add("scroll-pane");
+
+            p.getChildren().addAll(t, sp);
+            return p;
+        }
+
+        private void showAlert(Alert.AlertType type, String title, String message) {
+            Platform.runLater(() -> {
+                Alert alert = new Alert(type);
+                alert.setTitle(title);
+                alert.setHeaderText(null);
+                alert.setContentText(message);
+                alert.showAndWait();
+            });
+        }
+
+        private java.util.concurrent.CompletableFuture<Boolean> sendToAPI(
+                String method, String endpoint, Object data) {
+
+            String json = gson.toJson(data);
+            HttpRequest.Builder rb = HttpRequest.newBuilder()
+                    .uri(URI.create(BASE_URL + endpoint))
+                    .header("Content-Type", "application/json");
+
+            if (method.equals("POST")) rb.POST(HttpRequest.BodyPublishers.ofString(json));
+            else rb.PUT(HttpRequest.BodyPublishers.ofString(json));
+
+            return client.sendAsync(rb.build(), HttpResponse.BodyHandlers.ofString())
+                    .thenApply(res -> {
+                        if (res.statusCode() == 201 || res.statusCode() == 200) {
+                            try {
+                                Map<String, Object> r = gson.fromJson(res.body(),
+                                        new TypeToken<Map<String, Object>>(){}.getType());
+                                if (r.containsKey("id")) {
+                                    workshopId = r.get("id").toString();
+                                    PREFS.put("workshopId", workshopId);
+                                }
+                            } catch (Exception ignored) {}
+                            return true;
+                        }
+                        return false;
+                    })
+                    .exceptionally(ex -> {
+                        Platform.runLater(() -> showAlert(Alert.AlertType.ERROR, "Erro de Conexão", "Não foi possível conectar à API."));
+                        return false;
+                    });
+        }
+
+        private void refreshData(String endpoint, TableView<Map<String, Object>> tableView, String[] jsonKeys) {
+            if (workshopId.isEmpty() && endpoint.contains("oficina/")) {
+                tableView.getItems().clear();
+                return;
+            }
+
+            client.sendAsync(
+                            HttpRequest.newBuilder().uri(URI.create(BASE_URL + endpoint)).build(),
+                            HttpResponse.BodyHandlers.ofString())
+                    .thenApply(HttpResponse::body)
+                    .thenAccept(json -> Platform.runLater(() -> {
+                        tableView.getItems().clear();
                         try {
-                            Map<String, Object> r = gson.fromJson(res.body(),
-                                    new TypeToken<Map<String, Object>>(){}.getType());
-                            if (r.containsKey("id")) {
-                                workshopId = r.get("id").toString();
-                                PREFS.put("workshopId", workshopId);
+                            List<Map<String, Object>> items = gson.fromJson(json,
+                                    new TypeToken<List<Map<String, Object>>>(){}.getType());
+                            if (items != null) {
+                                for (Map<String, Object> item : items) {
+                                    Map<String, Object> rowData = new HashMap<>();
+                                    for (String key : jsonKeys) {
+                                        rowData.put(key, item.getOrDefault(key, "-"));
+                                    }
+                                    tableView.getItems().add(rowData);
+                                }
                             }
                         } catch (Exception ignored) {}
-                        return true;
-                    }
-                    return false;
-                })
-                .exceptionally(ex -> false);
-    }
-
-    private void refreshData(String endpoint, DefaultTableModel model, String[] jsonKeys) {
-        if (workshopId.isEmpty() && endpoint.contains("oficina/")) {
-            model.setRowCount(0);
-            return;
+                    }))
+                    .exceptionally(ex -> {
+                        Platform.runLater(() -> showAlert(Alert.AlertType.ERROR, "Erro de Dados", "Não foi possível carregar os dados."));
+                        return null;
+                    });
         }
 
-        client.sendAsync(
-                        HttpRequest.newBuilder().uri(URI.create(BASE_URL + endpoint)).build(),
-                        HttpResponse.BodyHandlers.ofString())
-                .thenApply(HttpResponse::body)
-                .thenAccept(json -> SwingUtilities.invokeLater(() -> {
-                    model.setRowCount(0);
-                    try {
-                        List<Map<String, Object>> items = gson.fromJson(json,
-                                new TypeToken<List<Map<String, Object>>>(){}.getType());
-                        if (items != null) {
-                            for (Map<String, Object> item : items) {
-                                Object[] row = new Object[jsonKeys.length];
-                                for (int i = 0; i < jsonKeys.length; i++) {
-                                    row[i] = item.get(jsonKeys[i]) != null
-                                            ? item.get(jsonKeys[i]).toString() : "-";
-                                }
-                                model.addRow(row);
+        private void autoDetectLocation(TextField txtLoc, TextField txtLat, TextField txtLon) {
+            client.sendAsync(
+                            HttpRequest.newBuilder().uri(URI.create("http://ip-api.com/json/")).build(),
+                            HttpResponse.BodyHandlers.ofString())
+                    .thenApply(HttpResponse::body)
+                    .thenAccept(json -> Platform.runLater(() -> {
+                        try {
+                            Map<String, Object> data = gson.fromJson(json,
+                                    new TypeToken<Map<String, Object>>(){}.getType());
+                            if (data != null && "success".equals(data.get("status"))) {
+                                txtLat.setText(String.valueOf(data.get("lat")));
+                                txtLon.setText(String.valueOf(data.get("lon")));
+                                txtLoc.setText(data.get("city") + ", " + data.get("regionName"));
                             }
-                        }
-                    } catch (Exception ignored) {}
-                }));
-    }
-
-    private void autoDetectLocation(JTextField txtLoc, JTextField txtLat, JTextField txtLon) {
-        client.sendAsync(
-                        HttpRequest.newBuilder().uri(URI.create("http://ip-api.com/json/")).build(),
-                        HttpResponse.BodyHandlers.ofString())
-                .thenApply(HttpResponse::body)
-                .thenAccept(json -> SwingUtilities.invokeLater(() -> {
-                    try {
-                        Map<String, Object> data = gson.fromJson(json,
-                                new TypeToken<Map<String, Object>>(){}.getType());
-                        if (data != null && "success".equals(data.get("status"))) {
-                            txtLat.setText(String.valueOf(data.get("lat")));
-                            txtLon.setText(String.valueOf(data.get("lon")));
-                            txtLoc.setText(data.get("city") + ", " + data.get("regionName"));
-                        }
-                    } catch (Exception ignored) {}
-                }))
-                .exceptionally(ex -> null);
-    }
-
-    private void loadFonts() {
-        try {
-            InputStream isA = getClass().getResourceAsStream("/assets/Ardela.ttf");
-            ardelaFont = Font.createFont(Font.TRUETYPE_FONT, isA);
-            InputStream isS = getClass().getResourceAsStream("/assets/Sora-Regular.ttf");
-            soraFont = Font.createFont(Font.TRUETYPE_FONT, isS);
-            GraphicsEnvironment.getLocalGraphicsEnvironment().registerFont(ardelaFont);
-            GraphicsEnvironment.getLocalGraphicsEnvironment().registerFont(soraFont);
-        } catch (Exception e) {
-            ardelaFont = new Font("SansSerif", Font.BOLD, 36);
-            soraFont = new Font("SansSerif", Font.PLAIN, 16);
+                        } catch (Exception ignored) {}
+                    }))
+                    .exceptionally(ex -> {
+                        Platform.runLater(() -> showAlert(Alert.AlertType.ERROR, "Erro de Localização", "Não foi possível detectar a localização."));
+                        return null;
+                    });
         }
-    }
 
-    private JPanel createFormCard(String title) {
-        JPanel p = new JPanel();
-        p.setLayout(new BoxLayout(p, BoxLayout.Y_AXIS));
-        p.setBackground(PURE_WHITE);
-        p.setBorder(new CompoundBorder(
-                new LineBorder(Color.decode("#DDD"), 1),
-                new EmptyBorder(25, 25, 25, 25)));
-        JLabel l = new JLabel(title);
-        l.setFont(soraFont.deriveFont(Font.BOLD, 14f));
-        l.setBorder(new EmptyBorder(0, 0, 20, 0));
-        p.add(l);
-        return p;
-    }
-
-    private JTextField createStyledField(String placeholder, Color bg, Color fg) {
-        JTextField f = new JTextField();
-        f.setMaximumSize(new Dimension(Integer.MAX_VALUE, 60));
-        f.setFont(soraFont.deriveFont(14f));
-        f.setBackground(bg);
-        f.setForeground(fg);
-        f.setCaretColor(fg);
-        f.setBorder(BorderFactory.createTitledBorder(
-                new LineBorder(PRIMARY_GREEN, 1), placeholder,
-                0, 0, soraFont.deriveFont(9f), PRIMARY_GREEN));
-        return f;
-    }
-
-    public static void main(String[] args) {
-        try {
-            UIManager.setLookAndFeel(UIManager.getCrossPlatformLookAndFeelClassName());
-        } catch (Exception ignored) {}
-        SwingUtilities.invokeLater(Main::new);
+        private void loadFonts() {
+            try {
+                Font.loadFont(Objects.requireNonNull(getClass().getResourceAsStream("/assets/Ardela.ttf")), 10);
+                Font.loadFont(Objects.requireNonNull(getClass().getResourceAsStream("/assets/Sora-Regular.ttf")), 10);
+            } catch (Exception e) {
+                System.err.println("Erro ao carregar fontes: " + e.getMessage());
+            }
+        }
     }
 }
