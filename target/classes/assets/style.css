@@ -1,151 +1,198 @@
 /* ==========================================================================
-   VARIÁVEIS DE TEMA ESCURO (DARK MODE)
+   MOTOR PRO - ULTRA DARK THEME
+   Harmony: Onyx, Slate & Emerald
    ========================================================================== */
+
 .root {
-    /* Cores de Fundo e Destaque */
-    -fx-primary-color: #3b82f6;
-    -fx-primary-hover: #60a5fa;
-    -fx-sidebar-bg: #020617;        /* Fundo da barra lateral mais escuro */
-    -fx-bg-main: #0f172a;           /* Fundo principal (Slate 950) */
-    -fx-card-bg: #1e293b;           /* Fundo dos cards (Slate 800) */
+    /* Cores de Fundo (Escuras) */
+    -fx-bg-base: #0B0B0B;           /* Preto Puro */
+    -fx-bg-main: #121418;           /* Onyx Dark */
+    -fx-bg-card: #1E2227;           /* Slate Onyx (Cards) */
 
-    /* Cores de Texto */
-    -fx-text-main: #f8fafc;         /* Branco para texto principal */
-    -fx-text-muted: #94a3b8;        /* Cinza para textos menores */
-    -fx-border-color-soft: #334155; /* Bordas sutis */
+    /* Cores de Texto (Claras) */
+    -fx-text-title: #FFFFFF;        /* Branco Puro */
+    -fx-text-body: #E2E8F0;         /* Off-White/Cinza Claro */
+    -fx-text-muted: #94A3B8;        /* Cinza Médio para detalhes */
 
-    /* Tipografia Aumentada */
+    /* Destaque (Verde Motor Pro) */
+    -fx-accent: #16BC4E;
+    -fx-accent-glow: rgba(22, 188, 78, 0.2);
+
     -fx-font-family: "Sora", sans-serif;
 }
 
+/* Fundo da Janela */
 .master-panel {
-    -fx-background-color: -fx-bg-main;
+    -fx-background-color: -fx-bg-base;
 }
 
 /* ==========================================================================
    SIDEBAR
    ========================================================================== */
 .sidebar {
-    -fx-background-color: -fx-sidebar-bg;
-    -fx-padding: 40 15 20 15;
-    -fx-spacing: 12;
+    -fx-background-color: -fx-bg-base;
+    -fx-padding: 40 10;
+    -fx-border-color: transparent #2D333B transparent transparent;
+    -fx-border-width: 1;
 }
 
 .sidebar-button {
     -fx-background-color: transparent;
-    -fx-text-fill: -fx-text-muted;
-    -fx-font-size: 16px;            /* Fonte aumentada */
-    -fx-font-weight: 600;
-    -fx-background-radius: 10;
+    -fx-text-fill: -fx-text-body; /* Letras claras */
+    -fx-font-size: 14px;
+    -fx-font-weight: 500;
     -fx-cursor: hand;
     -fx-alignment: CENTER_LEFT;
-    -fx-padding: 14 20;             /* Mais respiro */
+    -fx-padding: 14 25;
+    -fx-background-radius: 8;
 }
 
 .sidebar-button:hover {
-    -fx-background-color: #1e293b;
-    -fx-text-fill: white;
+    -fx-background-color: #1A1D23;
+    -fx-text-fill: -fx-accent;
 }
 
 .sidebar-button-selected {
-    -fx-background-color: -fx-primary-color;
-    -fx-text-fill: white;
+    -fx-background-color: -fx-accent-glow;
+    -fx-text-fill: -fx-accent;
+    -fx-border-color: transparent transparent transparent -fx-accent;
+    -fx-border-width: 0 0 0 4;
 }
 
 /* ==========================================================================
-   CONTEÚDO PRINCIPAL
+   CONTENT & TITLES
    ========================================================================== */
 .dashboard-content {
     -fx-background-color: -fx-bg-main;
-    -fx-padding: 40 60;
+    -fx-padding: 50 70;
 }
 
 .content-title {
     -fx-font-family: "Ardela";
-    -fx-font-size: 38px;            /* Título maior */
-    -fx-text-fill: -fx-text-main;
+    -fx-font-size: 48px;
+    -fx-text-fill: -fx-text-title; /* Título Branco */
+    -fx-effect: dropshadow(three-pass-box, rgba(0,0,0,0.3), 5, 0, 0, 2);
 }
 
 /* ==========================================================================
-   TABELAS (TABLE VIEW DARK)
+   TABELAS (MODO DARK)
    ========================================================================== */
 .table-view {
-    -fx-background-color: -fx-card-bg;
+    -fx-background-color: -fx-bg-card;
     -fx-background-radius: 12;
     -fx-border-radius: 12;
-    -fx-border-color: -fx-border-color-soft;
+    -fx-border-color: #2D333B;
+    -fx-padding: 5;
 }
 
 .table-view .column-header-background {
-    -fx-background-color: #334155;
+    -fx-background-color: transparent;
 }
 
 .table-view .column-header {
     -fx-background-color: transparent;
     -fx-size: 50;
+    -fx-border-color: transparent transparent #2D333B transparent;
 }
 
 .table-view .column-header .label {
-    -fx-text-fill: white;
+    -fx-text-fill: -fx-accent;
     -fx-font-weight: bold;
-    -fx-font-size: 14px;
+    -fx-font-size: 13px;
+    -fx-text-transform: uppercase;
 }
 
 .table-view .table-row-cell {
+    -fx-background-color: transparent;
+    -fx-text-fill: -fx-text-body; /* Texto das células claro */
     -fx-cell-size: 55;
-    -fx-background-color: -fx-card-bg;
-    -fx-text-fill: white;
-    -fx-border-color: transparent transparent #334155 transparent;
+    -fx-border-color: transparent transparent #2D333B transparent;
 }
 
 .table-view .table-row-cell:hover {
-    -fx-background-color: #334155;
+    -fx-background-color: #2D333B;
+}
+
+.table-view .table-row-cell:selected {
+    -fx-background-color: -fx-accent;
+}
+
+.table-view .table-row-cell:selected .text {
+    -fx-fill: #000000; /* Texto fica preto quando a linha verde é selecionada para contraste */
 }
 
 /* ==========================================================================
-   FORM CARDS & INPUTS
+   FORMS & INPUTS
    ========================================================================== */
 .form-card {
-    -fx-background-color: -fx-card-bg;
+    -fx-background-color: -fx-bg-card;
     -fx-padding: 35;
-    -fx-background-radius: 16;
+    -fx-background-radius: 20;
+    -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.4), 15, 0, 0, 5);
+}
+
+.login-title {
+    -fx-font-family: "Ardela";
+    -fx-font-size: 52px;
+    -fx-text-fill: -fx-accent;
 }
 
 .text-field-styled {
-    -fx-background-color: #0f172a;
-    -fx-border-color: #475569;
+    -fx-background-color: #0B0B0B;
+    -fx-border-color: #3E444D;
     -fx-border-radius: 10;
     -fx-background-radius: 10;
-    -fx-padding: 14 18;
-    -fx-font-size: 15px;            /* Fonte aumentada */
-    -fx-text-fill: white;
+    -fx-padding: 16;
+    -fx-font-size: 15px;
+    -fx-text-fill: #FFFFFF; /* Digitação em Branco */
+    -fx-prompt-text-fill: #666666;
 }
 
 .text-field-styled:focused {
-    -fx-border-color: -fx-primary-color;
-    -fx-border-width: 2;
+    -fx-border-color: -fx-accent;
+    -fx-effect: dropshadow(three-pass-box, -fx-accent-glow, 10, 0, 0, 0);
 }
 
 /* ==========================================================================
    BOTÕES
    ========================================================================== */
 .big-button-primary {
-    -fx-background-color: -fx-primary-color;
-    -fx-text-fill: white;
+    -fx-background-color: -fx-accent;
+    -fx-text-fill: #000000; /* Texto Preto no botão Verde */
     -fx-font-weight: bold;
-    -fx-font-size: 16px;            /* Fonte aumentada */
+    -fx-font-size: 16px;
     -fx-background-radius: 12;
+    -fx-cursor: hand;
+}
+
+.big-button-primary:hover {
+    -fx-background-color: #1ed75f;
+    -fx-scale-x: 1.02;
+    -fx-scale-y: 1.02;
 }
 
 .big-button-secondary {
     -fx-background-color: transparent;
-    -fx-border-color: #475569;
-    -fx-text-fill: white;
+    -fx-border-color: -fx-accent;
+    -fx-border-width: 2;
+    -fx-text-fill: -fx-accent;
+    -fx-font-weight: bold;
     -fx-font-size: 16px;
     -fx-background-radius: 12;
+    -fx-cursor: hand;
 }
 
-.check-box {
-    -fx-text-fill: white;
-    -fx-font-size: 14px;
+.big-button-secondary:hover {
+    -fx-background-color: -fx-accent-glow;
+}
+
+.link-button {
+    -fx-text-fill: -fx-text-muted;
+    -fx-font-size: 13px;
+    -fx-background-color: transparent;
+    -fx-cursor: hand;
+}
+
+.link-button:hover {
+    -fx-text-fill: #FFFFFF;
 }
