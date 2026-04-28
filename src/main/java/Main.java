@@ -1,14 +1,13 @@
 import com.google.gson.Gson;
-import com.google.gson.reflect.TypeToken;
 import javafx.application.Application;
 import javafx.application.Platform;
+import javafx.beans.property.SimpleObjectProperty;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Scene;
 import javafx.scene.control.*;
-import javafx.scene.control.cell.MapValueFactory;
 import javafx.scene.image.Image;
 import javafx.scene.layout.*;
 import javafx.stage.Stage;
@@ -27,7 +26,7 @@ public class Main extends Application {
     // -------------------------------------------------------------------------
     // Constantes
     // -------------------------------------------------------------------------
-    private static final String BASE_URL = "https://teste-production-a485.up.railway.app/api/";
+    private static final String BASE_URL = "https://api-java-production-5e77.up.railway.app/";
     private static final HttpClient HTTP  = HttpClient.newBuilder()
             .connectTimeout(java.time.Duration.ofSeconds(15)).build();
     private static final Gson GSON = new Gson();
@@ -35,7 +34,7 @@ public class Main extends Application {
     // -------------------------------------------------------------------------
     // Estado
     // -------------------------------------------------------------------------
-    private String workshopId      = "";
+    private String workshopId      = "550e8400-e29b-41d4-a716-446655440000"; // ID Exemplo (UUID)
     private String currentTab      = "VEÍCULOS";
     private final Map<String, TableView<Map<String, Object>>> tabTables = new HashMap<>();
     private final Map<String, String>   tabEndpoints = new HashMap<>();
@@ -128,12 +127,12 @@ public class Main extends Application {
         brand.setStyle("-fx-font-size:22px; -fx-font-weight:700; -fx-text-fill: #16BC4E;");
         brand.setPadding(new Insets(0, 0, 24, 0));
 
-        Button btnVeiculos      = sidebarBtn("🚗", "VEÍCULOS");
+        Button btnClientes      = sidebarBtn("👥", "CLIENTES");
         Button btnAgendamentos  = sidebarBtn("📅", "AGENDAMENTOS");
         Button btnOficina       = sidebarBtn("➕", "ADICIONAR OFICINA");
 
-        registerTab("VEÍCULOS",     "veiculos",     new String[]{"Placa", "Modelo", "Ano"},
-                new String[]{"placa", "modelo", "ano"}, btnVeiculos);
+        registerTab("CLIENTES",     "api/users",     new String[]{"Nome", "Email", "ID"},
+                new String[]{"nome", "email", "id"}, btnClientes);
         registerTab("AGENDAMENTOS", "agendamentos", new String[]{"Cliente", "Serviço", "Horário"},
                 new String[]{"userId", "servico", "horario"}, btnAgendamentos);
 
@@ -144,11 +143,11 @@ public class Main extends Application {
             dashPane.setCenter(buildConfigPane(true));
         });
 
-        sidebar.getChildren().addAll(brand, btnVeiculos, btnAgendamentos,
+        sidebar.getChildren().addAll(brand, btnClientes, btnAgendamentos,
                 new Separator(), btnOficina);
 
-        // Seleciona Veículos por padrão
-        Platform.runLater(() -> btnVeiculos.fire());
+        // Seleciona Clientes por padrão
+        Platform.runLater(() -> btnClientes.fire());
 
         return sidebar;
     }
@@ -205,12 +204,47 @@ public class Main extends Application {
         table.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY);
 
         for (int i = 0; i < cols.length; i++) {
+            // Armazena a chave em uma variável final para usar dentro do lambda
+            final String key = keys[i];
+
             TableColumn<Map<String, Object>, Object> col = new TableColumn<>(cols[i]);
-            col.setCellValueFactory(new MapValueFactory<>(keys[i]));
+
+            // Usando Lambda para evitar problemas de compatibilidade de tipos
+            col.setCellValueFactory(data ->
+                    new SimpleObjectProperty<>(data.getValue().get(key))
+            );
+
             col.setStyle("-fx-alignment: CENTER;");
             table.getColumns().add(col);
         }
         return table;
+    }
+
+    /** Adiciona menu de contexto para mudar status de agendamentos */
+    private void addStatusContextMenu(TableView<Map<String, Object>> table) {
+        ContextMenu menu = new ContextMenu();
+        String[] statuses = {"PENDENTE", "CONFIRMADO", "CANCELADO", "CONCLUIDO"};
+
+        for (String s : statuses) {
+            MenuItem item = new MenuItem("Marcar como " + s);
+            item.setOnAction(e -> {
+                Map<String, Object> selected = table.getSelectionModel().getSelectedItem();
+                if (selected != null) {
+                    String id = String.valueOf(selected.get("id"));
+                    Map<String, String> body = Map.of("status", s);
+                    sendToAPI("PATCH", "api/appointments/" + id + "/status", body)
+                            .thenRun(() -> Platform.runLater(() -> refreshTab(currentTab)));
+                }
+            });
+            menu.getItems().add(item);
+        }
+
+        table.setRowFactory(tv -> {
+            TableRow<Map<String, Object>> row = new TableRow<>();
+            row.contextMenuProperty().bind(
+                javafx.beans.binding.Bindings.when(row.emptyProperty()).then((ContextMenu)null).otherwise(menu));
+            return row;
+        });
     }
 
     // -------------------------------------------------------------------------
@@ -254,36 +288,16 @@ public class Main extends Application {
         // Coluna 1 — Dados da empresa
         VBox card1 = formCard("DADOS DA EMPRESA");
         TextField txtNome  = styledField("NOME");
-        TextField txtLocal = styledField("LOCALIDADE");
+        TextField txtLocal = styledField("ENDEREÇO");
+        TextField txtTel   = styledField("TELEFONE");
         TextField txtLat   = styledField("LATITUDE");
         TextField txtLon   = styledField("LONGITUDE");
-        PasswordField txtSenha = new PasswordField();
-        txtSenha.setPromptText("SENHA");
-        txtSenha.getStyleClass().add("text-field-styled");
         card1.getChildren().addAll(
                 fieldLabel("NOME"), txtNome,
-                fieldLabel("LOCALIDADE"), txtLocal,
+                fieldLabel("ENDEREÇO"), txtLocal,
+                fieldLabel("TELEFONE"), txtTel,
                 fieldLabel("LATITUDE"), txtLat,
-                fieldLabel("LONGITUDE"), txtLon,
-                fieldLabel("SENHA"), txtSenha);
-
-        // Coluna 2 — Mecânicos
-        VBox card2 = formCard("MECÂNICOS");
-        ObservableList<String> mecList = FXCollections.observableArrayList();
-        ListView<String> mecView = new ListView<>(mecList);
-        mecView.getStyleClass().add("table-view");
-        mecView.setPrefHeight(220);
-
-        TextField txtMec = styledField("Adicionar mecânico...");
-        Button btnAddMec = new Button("+ ADD");
-        btnAddMec.getStyleClass().add("big-button-secondary");
-        btnAddMec.setOnAction(e -> {
-            String v = txtMec.getText().trim();
-            if (!v.isEmpty()) { mecList.add(v); txtMec.clear(); }
-        });
-        HBox mecRow = new HBox(8, txtMec, btnAddMec);
-        HBox.setHgrow(txtMec, Priority.ALWAYS);
-        card2.getChildren().addAll(mecRow, mecView);
+                fieldLabel("LONGITUDE"), txtLon);
 
         // Coluna 3 — Serviços
         VBox card3 = formCard("SERVIÇOS");
@@ -296,7 +310,7 @@ public class Main extends Application {
             card3.getChildren().add(cb);
         }
 
-        grid.getChildren().addAll(card1, card2, card3);
+        grid.getChildren().addAll(card1, card3);
         for (javafx.scene.Node n : grid.getChildren())
             HBox.setHgrow(n, Priority.ALWAYS);
 
@@ -311,18 +325,16 @@ public class Main extends Application {
 
             Map<String, Object> data = new HashMap<>();
             data.put("nome",      txtNome.getText());
-            data.put("localidade", txtLocal.getText());
-            data.put("senha",     txtSenha.getText());
+            data.put("endereco",   txtLocal.getText());
+            data.put("telefone",   txtTel.getText());
             try {
                 data.put("latitude",  Double.parseDouble(txtLat.getText()));
                 data.put("longitude", Double.parseDouble(txtLon.getText()));
             } catch (Exception ex) { data.put("latitude", 0.0); data.put("longitude", 0.0); }
-            data.put("mecanicos", new ArrayList<>(mecList));
-            data.put("servicos",  servs);
-            data.put("horarios",  Arrays.asList("08:00", "12:00", "18:00"));
+            data.put("servicos",  String.join(", ", servs));
 
             String method   = isNew ? "POST" : "PUT";
-            String endpoint = isNew ? "oficinas" : "oficinas/" + workshopId;
+            String endpoint = isNew ? "api/oficinas" : "api/oficinas/" + workshopId;
 
             sendToAPI(method, endpoint, data).thenAccept(ok ->
                     Platform.runLater(() -> {
@@ -384,6 +396,12 @@ public class Main extends Application {
         TableView<Map<String, Object>> table = tabTables.get(name);
         if (endpoint == null || table == null) return;
 
+        // Lógica especial para agendamentos por oficina
+        if ("AGENDAMENTOS".equals(name)) {
+            endpoint = "api/appointments/oficina/" + workshopId;
+            if (table.getRowFactory() == null) addStatusContextMenu(table);
+        }
+
         HTTP.sendAsync(
                         HttpRequest.newBuilder().uri(URI.create(BASE_URL + endpoint)).build(),
                         HttpResponse.BodyHandlers.ofString())
@@ -417,6 +435,7 @@ public class Main extends Application {
                 .header("Content-Type", "application/json");
         if ("POST".equals(method)) rb.POST(HttpRequest.BodyPublishers.ofString(json));
         else                       rb.PUT(HttpRequest.BodyPublishers.ofString(json));
+        if ("PATCH".equals(method)) rb.method("PATCH", HttpRequest.BodyPublishers.ofString(json));
 
         return HTTP.sendAsync(rb.build(), HttpResponse.BodyHandlers.ofString())
                 .thenApply(res -> {
