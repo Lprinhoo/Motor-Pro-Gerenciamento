@@ -10,9 +10,6 @@ import javafx.scene.Scene;
 import javafx.scene.control.*;
 import javafx.scene.image.Image;
 import javafx.scene.layout.*;
-import javafx.scene.paint.Color;
-import javafx.scene.shape.Circle;
-import javafx.stage.Modality;
 import javafx.stage.Stage;
 
 import java.net.URI;
@@ -29,32 +26,34 @@ public class Main extends Application {
     // -------------------------------------------------------------------------
     // Constantes
     // -------------------------------------------------------------------------
-    private static final String BASE_URL = "https://api-java-production-5e77.up.railway.app";
-    private static final HttpClient HTTP = HttpClient.newBuilder()
+    private static final String BASE_URL = "https://api-java-production-5e77.up.railway.app/";
+    private static final HttpClient HTTP  = HttpClient.newBuilder()
             .connectTimeout(java.time.Duration.ofSeconds(15)).build();
     private static final Gson GSON = new Gson();
 
     // -------------------------------------------------------------------------
-    // Estado de sessão
+    // Estado
     // -------------------------------------------------------------------------
-    private String jwtToken    = null;  // Bearer token após login
-    private String workshopId  = null;  // ID da oficina autenticada
-    private String currentTab  = "AGENDAMENTOS";
-
+    private String workshopId      = "550e8400-e29b-41d4-a716-446655440000";
+    private String currentTab      = "VEÍCULOS";
+    private String jwtToken        = null; // Bearer token obtido no login
     private final Map<String, TableView<Map<String, Object>>> tabTables    = new HashMap<>();
     private final Map<String, String>                         tabEndpoints = new HashMap<>();
     private final Map<String, String[]>                       tabKeys      = new HashMap<>();
 
     private ScheduledExecutorService scheduler;
-    private StackPane root;
+
+    // Layout raiz
+    private StackPane  root;
     private BorderPane dashPane;
 
-    // =========================================================================
-    // START
-    // =========================================================================
+    // -------------------------------------------------------------------------
+    // Inicialização JavaFX
+    // -------------------------------------------------------------------------
     @Override
     public void start(Stage stage) {
         root = new StackPane();
+
         Scene scene = new Scene(root, 1440, 900);
         scene.getStylesheets().add(
                 getClass().getResource("/assets/style.css").toExternalForm());
@@ -69,184 +68,128 @@ public class Main extends Application {
         stage.setScene(scene);
         stage.show();
 
-        showLoginScreen();
+        showLaunchScreen();
     }
 
     // =========================================================================
-    // TELA DE LOGIN / REGISTRO
+    // TELA DE LOGIN
     // =========================================================================
-    private void showLoginScreen() {
+    private void showLaunchScreen() {
         VBox card = new VBox(20);
         card.setAlignment(Pos.CENTER);
         card.setMaxWidth(420);
-        card.setPadding(new Insets(48));
-        card.setStyle(
-                "-fx-background-color: #111318;" +
-                        "-fx-background-radius: 16;" +
-                        "-fx-border-color: #2A2A3A;" +
-                        "-fx-border-radius: 16;" +
-                        "-fx-border-width: 1;"
-        );
 
         Label logo = new Label("MOTOR PRO");
-        logo.setStyle("-fx-font-size:28px; -fx-font-weight:700; -fx-text-fill:#16BC4E;");
+        logo.getStyleClass().add("content-title");
+        VBox.setMargin(logo, new Insets(0, 0, 16, 0));
 
-        Label subtitle = new Label("Sistema de Gerenciamento de Oficina");
-        subtitle.setStyle("-fx-text-fill:#9A9AAA; -fx-font-size:13px;");
-
-        // ---- Campos ----
-        TextField txtUser = new TextField();
-        txtUser.setPromptText("Email / Usuário");
-        txtUser.getStyleClass().add("text-field-styled");
-        txtUser.setMaxWidth(Double.MAX_VALUE);
-
+        // ── campos ──────────────────────────────────────────────────────────
+        TextField    txtUser = styledField("Usuário");
         PasswordField txtPass = new PasswordField();
         txtPass.setPromptText("Senha");
         txtPass.getStyleClass().add("text-field-styled");
-        txtPass.setMaxWidth(Double.MAX_VALUE);
 
-        // Campo extra só para registro
-        TextField txtOficinaId = new TextField();
-        txtOficinaId.setPromptText("ID da Oficina (somente no cadastro)");
-        txtOficinaId.getStyleClass().add("text-field-styled");
-        txtOficinaId.setMaxWidth(Double.MAX_VALUE);
-        txtOficinaId.setVisible(false);
-        txtOficinaId.setManaged(false);
+        Label lblError = new Label();
+        lblError.setStyle("-fx-text-fill: #FF4C4C; -fx-font-size:12px;");
+        lblError.setVisible(false);
 
-        Label lblStatus = new Label();
-        lblStatus.setStyle("-fx-text-fill:#FF4C4C; -fx-font-size:12px;");
-        lblStatus.setWrapText(true);
-
-        // ---- Botões ----
+        // ── botão login ──────────────────────────────────────────────────────
         Button btnLogin = new Button("ENTRAR");
         btnLogin.getStyleClass().add("big-button-primary");
         btnLogin.setMaxWidth(Double.MAX_VALUE);
+        btnLogin.setPrefHeight(52);
 
-        Button btnToggle = new Button("Não tem conta? Cadastre-se");
-        btnToggle.setStyle(
-                "-fx-background-color:transparent;" +
-                        "-fx-text-fill:#16BC4E;" +
-                        "-fx-cursor:hand;" +
-                        "-fx-font-size:12px;"
-        );
+        // ── botão entrar sem login (modo offline / sem autenticação) ─────────
+        Button btnSkip = new Button("Entrar sem login  →");
+        btnSkip.setStyle("-fx-background-color: transparent; -fx-text-fill: #9A9AAA; " +
+                "-fx-font-size:12px; -fx-cursor: hand;");
+        btnSkip.setOnAction(e -> showDashboard());
 
-        final boolean[] isRegisterMode = {false};
-
-        btnToggle.setOnAction(e -> {
-            isRegisterMode[0] = !isRegisterMode[0];
-            if (isRegisterMode[0]) {
-                btnLogin.setText("CADASTRAR");
-                btnToggle.setText("Já tem conta? Entrar");
-                txtOficinaId.setVisible(true);
-                txtOficinaId.setManaged(true);
-            } else {
-                btnLogin.setText("ENTRAR");
-                btnToggle.setText("Não tem conta? Cadastre-se");
-                txtOficinaId.setVisible(false);
-                txtOficinaId.setManaged(false);
-            }
-            lblStatus.setText("");
-        });
-
-        btnLogin.setOnAction(e -> {
+        Runnable doLogin = () -> {
             String user = txtUser.getText().trim();
-            String pass = txtPass.getText().trim();
-            if (user.isEmpty() || pass.isEmpty()) {
-                lblStatus.setText("Preencha usuário e senha.");
+            String pass = txtPass.getText();
+            if (user.isBlank() || pass.isBlank()) {
+                lblError.setText("Preencha usuário e senha.");
+                lblError.setVisible(true);
                 return;
             }
-            btnLogin.setDisable(true);
-            btnLogin.setText("AGUARDE...");
-            lblStatus.setText("");
+            btnLogin.setText("ENTRANDO..."); btnLogin.setDisable(true);
+            lblError.setVisible(false);
 
-            if (isRegisterMode[0]) {
-                // ---------- REGISTRO ----------
-                String ofId = txtOficinaId.getText().trim();
-                if (ofId.isEmpty()) {
-                    lblStatus.setText("Informe o ID da Oficina para cadastro.");
-                    btnLogin.setDisable(false);
-                    btnLogin.setText("CADASTRAR");
-                    return;
-                }
-                Map<String, Object> body = new LinkedHashMap<>();
-                body.put("username", user);
-                body.put("password", pass);
-                try { body.put("oficinaId", Long.parseLong(ofId)); }
-                catch (NumberFormatException ex) { body.put("oficinaId", ofId); }
+            postLogin(user, pass).thenAccept(token ->
+                    Platform.runLater(() -> {
+                        btnLogin.setText("ENTRAR"); btnLogin.setDisable(false);
+                        if (token != null) {
+                            jwtToken = token;
+                            showDashboard();
+                        } else {
+                            lblError.setText("Usuário ou senha incorretos.");
+                            lblError.setVisible(true);
+                        }
+                    })
+            );
+        };
 
-                doPost("/oficina-users/register", body, null)
-                        .thenAccept(res -> Platform.runLater(() -> {
-                            btnLogin.setDisable(false);
-                            btnLogin.setText("CADASTRAR");
-                            if (res != null && res.statusCode() >= 200 && res.statusCode() < 300) {
-                                lblStatus.setStyle("-fx-text-fill:#16BC4E; -fx-font-size:12px;");
-                                lblStatus.setText("Cadastro realizado! Faça login.");
-                                isRegisterMode[0] = false;
-                                btnLogin.setText("ENTRAR");
-                                btnToggle.setText("Não tem conta? Cadastre-se");
-                                txtOficinaId.setVisible(false);
-                                txtOficinaId.setManaged(false);
-                            } else {
-                                lblStatus.setStyle("-fx-text-fill:#FF4C4C; -fx-font-size:12px;");
-                                lblStatus.setText("Erro no cadastro. Verifique os dados.");
+        btnLogin.setOnAction(e -> doLogin.run());
+        // Enter nos campos também dispara o login
+        txtUser.setOnAction(e -> doLogin.run());
+        txtPass.setOnAction(e -> doLogin.run());
+
+        card.getChildren().addAll(logo,
+                fieldLabel("USUÁRIO"), txtUser,
+                fieldLabel("SENHA"),   txtPass,
+                lblError, btnLogin, btnSkip);
+
+        StackPane launch = new StackPane(card);
+        launch.getStyleClass().add("master-panel");
+        root.getChildren().setAll(launch);
+    }
+
+    /**
+     * POST /oficina-users/login (ou /auth/login)
+     * Retorna o JWT token ou null se falhar.
+     * Tenta os dois endpoints mais comuns de Spring Security.
+     */
+    private java.util.concurrent.CompletableFuture<String> postLogin(String username, String password) {
+        // Tenta /oficina-users/login primeiro; se não existir tenta /auth/login
+        return tryLoginEndpoint("oficina-users/login", username, password)
+                .thenCompose(token -> {
+                    if (token != null) return java.util.concurrent.CompletableFuture.completedFuture(token);
+                    return tryLoginEndpoint("auth/login", username, password);
+                });
+    }
+
+    private java.util.concurrent.CompletableFuture<String> tryLoginEndpoint(
+            String endpoint, String username, String password) {
+
+        Map<String, String> body = new LinkedHashMap<>();
+        body.put("username", username);
+        body.put("password", password);
+        String json = GSON.toJson(body);
+
+        HttpRequest req = HttpRequest.newBuilder()
+                .uri(URI.create(BASE_URL + endpoint))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(json))
+                .build();
+
+        return HTTP.sendAsync(req, HttpResponse.BodyHandlers.ofString())
+                .thenApply(res -> {
+                    System.out.println("[login:" + endpoint + "] Status: "
+                            + res.statusCode() + " | " + res.body());
+                    if (res.statusCode() == 200 || res.statusCode() == 201) {
+                        try {
+                            Map<String, Object> r = GSON.fromJson(res.body(),
+                                    new com.google.gson.reflect.TypeToken<
+                                            Map<String, Object>>(){}.getType());
+                            // Aceita chaves comuns: token, accessToken, jwt, access_token
+                            for (String key : new String[]{"token","accessToken","jwt","access_token"}) {
+                                if (r.containsKey(key)) return (String) r.get(key);
                             }
-                        })).exceptionally(ex -> { Platform.runLater(() -> {
-                            btnLogin.setDisable(false); btnLogin.setText("CADASTRAR");
-                            lblStatus.setText("Erro de conexão.");
-                        }); return null; });
-
-            } else {
-                // ---------- LOGIN ----------
-                Map<String, String> body = new LinkedHashMap<>();
-                body.put("username", user);
-                body.put("password", pass);
-
-                doPost("/oficina-users/login", body, null)
-                        .thenAccept(res -> Platform.runLater(() -> {
-                            btnLogin.setDisable(false);
-                            btnLogin.setText("ENTRAR");
-                            if (res != null && res.statusCode() == 200) {
-                                try {
-                                    Map<?, ?> json = GSON.fromJson(res.body(), Map.class);
-                                    jwtToken = (String) json.get("token");
-                                    // Tenta extrair o oficina ID da resposta
-                                    if (json.containsKey("oficinaId")) {
-                                        workshopId = String.valueOf(json.get("oficinaId"));
-                                    } else if (json.containsKey("id")) {
-                                        workshopId = String.valueOf(json.get("id"));
-                                    }
-                                    if (jwtToken != null && !jwtToken.isEmpty()) {
-                                        showDashboard();
-                                    } else {
-                                        lblStatus.setText("Token não recebido. Tente novamente.");
-                                    }
-                                } catch (Exception ex) {
-                                    lblStatus.setText("Erro ao processar resposta do servidor.");
-                                }
-                            } else {
-                                lblStatus.setStyle("-fx-text-fill:#FF4C4C; -fx-font-size:12px;");
-                                lblStatus.setText("Usuário ou senha incorretos.");
-                            }
-                        })).exceptionally(ex -> { Platform.runLater(() -> {
-                            btnLogin.setDisable(false); btnLogin.setText("ENTRAR");
-                            lblStatus.setText("Erro de conexão com o servidor.");
-                        }); return null; });
-            }
-        });
-
-        // Permite login com Enter
-        txtPass.setOnAction(e -> btnLogin.fire());
-
-        card.getChildren().addAll(
-                logo, subtitle,
-                new Separator(),
-                txtUser, txtPass, txtOficinaId,
-                btnLogin, btnToggle, lblStatus
-        );
-
-        StackPane bg = new StackPane(card);
-        bg.getStyleClass().add("master-panel");
-        root.getChildren().setAll(bg);
+                        } catch (Exception ignored) {}
+                    }
+                    return null;
+                }).exceptionally(ex -> null);
     }
 
     // =========================================================================
@@ -255,19 +198,18 @@ public class Main extends Application {
     private void showDashboard() {
         dashPane = new BorderPane();
         dashPane.getStyleClass().add("master-panel");
+
         dashPane.setLeft(buildSidebar());
         dashPane.setCenter(buildWelcomePane());
+
         root.getChildren().setAll(dashPane);
 
-        // Auto-refresh a cada 10 s
-        if (scheduler != null) scheduler.shutdownNow();
         scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "auto-refresh");
             t.setDaemon(true);
             return t;
         });
-        scheduler.scheduleAtFixedRate(
-                () -> Platform.runLater(this::autoRefresh), 10, 10, TimeUnit.SECONDS);
+        scheduler.scheduleAtFixedRate(() -> Platform.runLater(this::autoRefresh), 5, 5, TimeUnit.SECONDS);
     }
 
     // -------------------------------------------------------------------------
@@ -279,51 +221,31 @@ public class Main extends Application {
         sidebar.setPrefWidth(280);
 
         Label brand = new Label("MOTOR PRO");
-        brand.setStyle("-fx-font-size:22px; -fx-font-weight:700; -fx-text-fill:#16BC4E;");
+        brand.setStyle("-fx-font-size:22px; -fx-font-weight:700; -fx-text-fill: #16BC4E;");
         brand.setPadding(new Insets(0, 0, 24, 0));
 
-        Button btnAgendamentos = sidebarBtn("📅", "AGENDAMENTOS");
         Button btnClientes     = sidebarBtn("👥", "CLIENTES");
-        Button btnOficina      = sidebarBtn("🏭", "MINHA OFICINA");
-        Button btnLogout       = sidebarBtn("🚪", "SAIR");
+        Button btnAgendamentos = sidebarBtn("📅", "AGENDAMENTOS");
+        Button btnOficina      = sidebarBtn("➕", "ADICIONAR OFICINA");
 
-        // Registra abas
-        registerAgendamentosTab(btnAgendamentos, sidebar);
-        registerClientesTab(btnClientes, sidebar);
+        registerTab("CLIENTES",     "api/users",     new String[]{"Nome", "Email", "ID"},
+                new String[]{"nome", "email", "id"}, btnClientes);
+        registerTab("AGENDAMENTOS", "agendamentos", new String[]{"Cliente", "Serviço", "Horário"},
+                new String[]{"userId", "servico", "horario"}, btnAgendamentos);
 
+        // Abre o assistente de 3 etapas de cadastro de oficina
         btnOficina.setOnAction(e -> {
-            currentTab = "OFICINA";
+            currentTab = "ADICIONAR OFICINA";
             clearSelected(sidebar);
             btnOficina.getStyleClass().add("sidebar-button-selected");
-            dashPane.setCenter(buildOficinaPane());
+            dashPane.setCenter(buildRegistrationWizard());
         });
 
-        btnLogout.setStyle(
-                "-fx-background-color:transparent;" +
-                        "-fx-text-fill:#FF4C4C;" +
-                        "-fx-cursor:hand;" +
-                        "-fx-alignment:CENTER_LEFT;" +
-                        "-fx-font-size:13px;" +
-                        "-fx-padding:10 16 10 16;"
-        );
-        btnLogout.setMaxWidth(Double.MAX_VALUE);
-        btnLogout.setOnAction(e -> {
-            if (scheduler != null) scheduler.shutdownNow();
-            jwtToken   = null;
-            workshopId = null;
-            showLoginScreen();
-        });
+        sidebar.getChildren().addAll(brand, btnClientes, btnAgendamentos,
+                new Separator(), btnOficina);
 
-        Region spacer = new Region();
-        VBox.setVgrow(spacer, Priority.ALWAYS);
+        Platform.runLater(() -> btnClientes.fire());
 
-        sidebar.getChildren().addAll(
-                brand, btnAgendamentos, btnClientes, btnOficina,
-                spacer, new Separator(), btnLogout
-        );
-
-        // Seleciona Agendamentos ao abrir
-        Platform.runLater(btnAgendamentos::fire);
         return sidebar;
     }
 
@@ -334,6 +256,33 @@ public class Main extends Application {
         return btn;
     }
 
+    private void registerTab(String name, String endpoint, String[] cols,
+                             String[] keys, Button btn) {
+        tabEndpoints.put(name, endpoint);
+        tabKeys.put(name, keys);
+
+        TableView<Map<String, Object>> table = buildTable(cols, keys);
+        tabTables.put(name, table);
+
+        BorderPane viewPane = new BorderPane();
+        viewPane.getStyleClass().add("dashboard-content");
+
+        Label title = new Label(name);
+        title.getStyleClass().add("content-title");
+        BorderPane.setMargin(title, new Insets(0, 0, 24, 0));
+
+        viewPane.setTop(title);
+        viewPane.setCenter(table);
+
+        btn.setOnAction(e -> {
+            currentTab = name;
+            clearSelected(btn.getParent());
+            btn.getStyleClass().add("sidebar-button-selected");
+            dashPane.setCenter(viewPane);
+            refreshTab(name);
+        });
+    }
+
     private void clearSelected(javafx.scene.Parent parent) {
         parent.getChildrenUnmodifiable().forEach(n -> {
             if (n instanceof Button b)
@@ -341,605 +290,615 @@ public class Main extends Application {
         });
     }
 
-    // =========================================================================
-    // ABA AGENDAMENTOS
-    // =========================================================================
-    private void registerAgendamentosTab(Button btn, VBox sidebar) {
-        String name = "AGENDAMENTOS";
-
-        // Colunas visíveis
-        String[] cols = {"ID", "Cliente ID", "Veículo", "Serviço", "Data/Hora", "Status"};
-        String[] keys = {"id", "clienteId", "veiculo", "servico", "horario", "status"};
-
+    // -------------------------------------------------------------------------
+    // Tabela genérica
+    // -------------------------------------------------------------------------
+    @SuppressWarnings("unchecked")
+    private TableView<Map<String, Object>> buildTable(String[] cols, String[] keys) {
         TableView<Map<String, Object>> table = new TableView<>();
         table.getStyleClass().add("table-view");
         table.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY);
-        table.setPlaceholder(new Label("Nenhum agendamento encontrado."));
 
-        // Cria colunas normais
-        for (int i = 0; i < cols.length; i++) {
-            final String key = keys[i];
-            final String col = cols[i];
-
-            if ("Status".equals(col)) {
-                // Coluna de status com badge colorido
-                TableColumn<Map<String, Object>, String> statusCol = new TableColumn<>("Status");
-                statusCol.setCellValueFactory(data ->
-                        new javafx.beans.property.SimpleStringProperty(
-                                String.valueOf(data.getValue().getOrDefault("status", "-"))
-                        )
-                );
-                statusCol.setCellFactory(tc -> new TableCell<>() {
-                    @Override
-                    protected void updateItem(String status, boolean empty) {
-                        super.updateItem(status, empty);
-                        if (empty || status == null) { setGraphic(null); setText(null); return; }
-                        Label badge = new Label(status);
-                        badge.setPadding(new Insets(4, 12, 4, 12));
-                        badge.setStyle(
-                                "-fx-background-radius:20;" +
-                                        "-fx-font-size:11px;" +
-                                        "-fx-font-weight:700;" +
-                                        statusColor(status)
-                        );
-                        setGraphic(badge);
-                        setText(null);
-                        setAlignment(Pos.CENTER);
-                    }
-                });
-                table.getColumns().add(statusCol);
-            } else {
-                TableColumn<Map<String, Object>, Object> c = new TableColumn<>(col);
-                c.setCellValueFactory(data ->
-                        new SimpleObjectProperty<>(data.getValue().getOrDefault(key, "-"))
-                );
-                c.setStyle("-fx-alignment:CENTER;");
-                table.getColumns().add(c);
-            }
-        }
-
-        tabTables.put(name, table);
-        tabEndpoints.put(name, "/agendamentos");
-        tabKeys.put(name, keys);
-
-        // ---- Painel de ações ----
-        HBox actions = new HBox(12);
-        actions.setAlignment(Pos.CENTER_LEFT);
-        actions.setPadding(new Insets(0, 0, 16, 0));
-
-        Button btnConfirmar = actionBtn("✅ Confirmar",  "#16BC4E");
-        Button btnConcluir  = actionBtn("🏁 Concluir",   "#3B82F6");
-        Button btnCancelar  = actionBtn("❌ Cancelar",   "#EF4444");
-        Button btnDetalhes  = actionBtn("🔍 Detalhes",   "#9A9AAA");
-        Button btnExcluir   = actionBtn("🗑 Excluir",    "#FF4C4C");
-        Button btnRefresh   = actionBtn("🔄 Atualizar",  "#6366F1");
-
-        btnConfirmar.setOnAction(e -> mudarStatus(table, "CONFIRMADO"));
-        btnConcluir.setOnAction(e  -> mudarStatus(table, "CONCLUIDO"));
-        btnCancelar.setOnAction(e  -> mudarStatus(table, "CANCELADO"));
-        btnDetalhes.setOnAction(e  -> verDetalhes(table));
-        btnExcluir.setOnAction(e   -> excluirAgendamento(table));
-        btnRefresh.setOnAction(e   -> refreshTab(name));
-
-        actions.getChildren().addAll(
-                btnConfirmar, btnConcluir, btnCancelar,
-                btnDetalhes, btnExcluir, btnRefresh
-        );
-
-        // ---- Layout da aba ----
-        BorderPane viewPane = new BorderPane();
-        viewPane.getStyleClass().add("dashboard-content");
-
-        Label title = new Label("AGENDAMENTOS");
-        title.getStyleClass().add("content-title");
-
-        Label hint = new Label("Selecione um agendamento para usar as ações abaixo.");
-        hint.setStyle("-fx-text-fill:#9A9AAA; -fx-font-size:12px;");
-
-        VBox top = new VBox(8, title, hint, actions);
-        top.setPadding(new Insets(0, 0, 8, 0));
-        viewPane.setTop(top);
-        viewPane.setCenter(table);
-
-        btn.setOnAction(e -> {
-            currentTab = name;
-            clearSelected(sidebar);
-            btn.getStyleClass().add("sidebar-button-selected");
-            dashPane.setCenter(viewPane);
-            refreshTab(name);
-        });
-    }
-
-    /** Cor do badge de status */
-    private String statusColor(String status) {
-        return switch (status) {
-            case "CONFIRMADO" -> "-fx-background-color:#16BC4E33; -fx-text-fill:#16BC4E;";
-            case "PENDENTE"   -> "-fx-background-color:#F59E0B33; -fx-text-fill:#F59E0B;";
-            case "CANCELADO"  -> "-fx-background-color:#EF444433; -fx-text-fill:#EF4444;";
-            case "CONCLUIDO"  -> "-fx-background-color:#3B82F633; -fx-text-fill:#3B82F6;";
-            default           -> "-fx-background-color:#9A9AAA33; -fx-text-fill:#9A9AAA;";
-        };
-    }
-
-    private Button actionBtn(String label, String color) {
-        Button btn = new Button(label);
-        btn.setStyle(
-                "-fx-background-color:" + color + "22;" +
-                        "-fx-text-fill:" + color + ";" +
-                        "-fx-border-color:" + color + "55;" +
-                        "-fx-border-radius:8;" +
-                        "-fx-background-radius:8;" +
-                        "-fx-padding:8 16 8 16;" +
-                        "-fx-cursor:hand;" +
-                        "-fx-font-size:12px;" +
-                        "-fx-font-weight:700;"
-        );
-        return btn;
-    }
-
-    /** Muda o status de um agendamento selecionado */
-    private void mudarStatus(TableView<Map<String, Object>> table, String novoStatus) {
-        Map<String, Object> selected = table.getSelectionModel().getSelectedItem();
-        if (selected == null) {
-            showAlert(Alert.AlertType.WARNING, "Selecione um agendamento primeiro.");
-            return;
-        }
-        String id = String.valueOf(selected.get("id"));
-        Map<String, String> body = Map.of("status", novoStatus);
-
-        doPut("/agendamentos/" + id, body)
-                .thenAccept(res -> Platform.runLater(() -> {
-                    if (res != null && res.statusCode() >= 200 && res.statusCode() < 300) {
-                        refreshTab("AGENDAMENTOS");
-                    } else {
-                        showAlert(Alert.AlertType.ERROR, "Erro ao atualizar status. Cód: " +
-                                (res != null ? res.statusCode() : "?"));
-                    }
-                }));
-    }
-
-    /** Abre modal com detalhes do agendamento */
-    private void verDetalhes(TableView<Map<String, Object>> table) {
-        Map<String, Object> selected = table.getSelectionModel().getSelectedItem();
-        if (selected == null) {
-            showAlert(Alert.AlertType.WARNING, "Selecione um agendamento primeiro.");
-            return;
-        }
-        String id = String.valueOf(selected.get("id"));
-
-        doGet("/agendamentos/" + id).thenAccept(res -> Platform.runLater(() -> {
-            if (res == null || res.statusCode() != 200) {
-                showAlert(Alert.AlertType.ERROR, "Não foi possível carregar os detalhes.");
-                return;
-            }
-            try {
-                Map<?, ?> data = GSON.fromJson(res.body(), Map.class);
-                Stage modal = new Stage();
-                modal.initModality(Modality.APPLICATION_MODAL);
-                modal.setTitle("Detalhes do Agendamento #" + id);
-
-                VBox content = new VBox(14);
-                content.setPadding(new Insets(32));
-                content.setStyle("-fx-background-color:#111318;");
-                content.setPrefWidth(480);
-
-                Label title = new Label("Detalhes do Agendamento");
-                title.setStyle("-fx-font-size:18px; -fx-font-weight:700; -fx-text-fill:#FFFFFF;");
-
-                // Status badge
-                Object statusVal = data.get("status");
-                String status = String.valueOf(statusVal != null ? statusVal : "-");
-                Label statusBadge = new Label(status);
-                statusBadge.setPadding(new Insets(4, 16, 4, 16));
-                statusBadge.setStyle(
-                        "-fx-background-radius:20; -fx-font-weight:700; -fx-font-size:12px;" +
-                                statusColor(status)
-                );
-
-                VBox fields = new VBox(10);
-                String[][] fieldDefs = {
-                        {"ID",           "id"},
-                        {"Cliente ID",   "clienteId"},
-                        {"Veículo",      "veiculo"},
-                        {"Serviço",      "servico"},
-                        {"Data/Hora",    "horario"},
-                        {"Observações",  "observacoes"},
-                };
-                for (String[] fd : fieldDefs) {
-                    Object val = data.get(fd[1]);
-                    if (val == null) continue;
-                    HBox row = new HBox(8);
-                    Label lKey = new Label(fd[0] + ":");
-                    lKey.setStyle("-fx-text-fill:#9A9AAA; -fx-font-size:12px; -fx-min-width:100;");
-                    Label lVal = new Label(String.valueOf(val));
-                    lVal.setStyle("-fx-text-fill:#FFFFFF; -fx-font-size:13px;");
-                    lVal.setWrapText(true);
-                    row.getChildren().addAll(lKey, lVal);
-                    fields.getChildren().add(row);
-                }
-
-                Button btnFechar = new Button("FECHAR");
-                btnFechar.getStyleClass().add("big-button-primary");
-                btnFechar.setOnAction(ev -> modal.close());
-
-                content.getChildren().addAll(title, statusBadge, new Separator(), fields, btnFechar);
-
-                Scene modalScene = new Scene(content);
-                try {
-                    modalScene.getStylesheets().add(
-                            getClass().getResource("/assets/style.css").toExternalForm());
-                } catch (Exception ignored) {}
-                modal.setScene(modalScene);
-                modal.showAndWait();
-            } catch (Exception ex) {
-                showAlert(Alert.AlertType.ERROR, "Erro ao processar resposta: " + ex.getMessage());
-            }
-        }));
-    }
-
-    /** Exclui agendamento com confirmação */
-    private void excluirAgendamento(TableView<Map<String, Object>> table) {
-        Map<String, Object> selected = table.getSelectionModel().getSelectedItem();
-        if (selected == null) {
-            showAlert(Alert.AlertType.WARNING, "Selecione um agendamento primeiro.");
-            return;
-        }
-        String id = String.valueOf(selected.get("id"));
-
-        Alert confirm = new Alert(Alert.AlertType.CONFIRMATION);
-        confirm.setTitle("Confirmar Exclusão");
-        confirm.setHeaderText(null);
-        confirm.setContentText("Deseja realmente excluir o agendamento #" + id + "?");
-        Optional<ButtonType> result = confirm.showAndWait();
-        if (result.isEmpty() || result.get() != ButtonType.OK) return;
-
-        doDelete("/agendamentos/" + id).thenAccept(res -> Platform.runLater(() -> {
-            if (res != null && res.statusCode() >= 200 && res.statusCode() < 300) {
-                refreshTab("AGENDAMENTOS");
-            } else {
-                showAlert(Alert.AlertType.ERROR, "Erro ao excluir agendamento.");
-            }
-        }));
-    }
-
-    // =========================================================================
-    // ABA CLIENTES
-    // =========================================================================
-    private void registerClientesTab(Button btn, VBox sidebar) {
-        String name = "CLIENTES";
-        String[] cols = {"ID", "Nome", "Email", "Telefone"};
-        String[] keys = {"id", "nome", "email", "telefone"};
-
-        TableView<Map<String, Object>> table = buildGenericTable(cols, keys);
-        table.setPlaceholder(new Label("Nenhum cliente encontrado."));
-
-        tabTables.put(name, table);
-        tabKeys.put(name, keys);
-        // Endpoint dinâmico (precisa de workshopId)
-        tabEndpoints.put(name, "/clientes");
-
-        BorderPane viewPane = new BorderPane();
-        viewPane.getStyleClass().add("dashboard-content");
-
-        HBox header = new HBox(12);
-        header.setAlignment(Pos.CENTER_LEFT);
-
-        Label title = new Label("CLIENTES");
-        title.getStyleClass().add("content-title");
-        HBox.setHgrow(title, Priority.ALWAYS);
-
-        Button btnRefresh = actionBtn("🔄 Atualizar", "#6366F1");
-        btnRefresh.setOnAction(e -> refreshTab(name));
-
-        Button btnVerVeiculos = actionBtn("🚗 Ver Veículos", "#9A9AAA");
-        btnVerVeiculos.setOnAction(e -> verVeiculosCliente(table));
-
-        header.getChildren().addAll(title, btnVerVeiculos, btnRefresh);
-
-        VBox top = new VBox(8, header);
-        top.setPadding(new Insets(0, 0, 16, 0));
-        viewPane.setTop(top);
-        viewPane.setCenter(table);
-
-        btn.setOnAction(e -> {
-            currentTab = name;
-            clearSelected(sidebar);
-            btn.getStyleClass().add("sidebar-button-selected");
-            dashPane.setCenter(viewPane);
-            refreshTab(name);
-        });
-    }
-
-    private void verVeiculosCliente(TableView<Map<String, Object>> table) {
-        Map<String, Object> selected = table.getSelectionModel().getSelectedItem();
-        if (selected == null) {
-            showAlert(Alert.AlertType.WARNING, "Selecione um cliente primeiro.");
-            return;
-        }
-        String clienteId = String.valueOf(selected.get("id"));
-        String nomeCliente = String.valueOf(selected.getOrDefault("nome", clienteId));
-
-        doGet("/veiculos/cliente/" + clienteId).thenAccept(res -> Platform.runLater(() -> {
-            if (res == null || res.statusCode() != 200) {
-                showAlert(Alert.AlertType.ERROR, "Não foi possível carregar os veículos.");
-                return;
-            }
-            try {
-                List<?> lista = GSON.fromJson(res.body(), List.class);
-
-                Stage modal = new Stage();
-                modal.initModality(Modality.APPLICATION_MODAL);
-                modal.setTitle("Veículos de " + nomeCliente);
-
-                VBox content = new VBox(16);
-                content.setPadding(new Insets(32));
-                content.setStyle("-fx-background-color:#111318;");
-                content.setPrefWidth(560);
-
-                Label title = new Label("Veículos — " + nomeCliente);
-                title.setStyle("-fx-font-size:18px; -fx-font-weight:700; -fx-text-fill:#FFFFFF;");
-
-                TableView<Map<String, Object>> vTable = buildGenericTable(
-                        new String[]{"ID", "Marca", "Modelo", "Placa", "Ano"},
-                        new String[]{"id", "marca", "modelo", "placa", "ano"}
-                );
-                vTable.setPrefHeight(300);
-
-                ObservableList<Map<String, Object>> veiculos = FXCollections.observableArrayList();
-                for (Object item : lista) {
-                    if (item instanceof Map<?, ?> m) {
-                        Map<String, Object> row = new HashMap<>();
-                        for (String k : new String[]{"id","marca","modelo","placa","ano"}) {
-                            Object val = m.get(k);
-                            row.put(k, (val != null) ? val : "-");
-                        }
-                        veiculos.add(row);
-                    }
-                }
-                vTable.setItems(veiculos);
-
-                Button btnFechar = new Button("FECHAR");
-                btnFechar.getStyleClass().add("big-button-primary");
-                btnFechar.setOnAction(ev -> modal.close());
-
-                content.getChildren().addAll(title, new Separator(), vTable, btnFechar);
-
-                Scene modalScene = new Scene(content);
-                try {
-                    modalScene.getStylesheets().add(
-                            getClass().getResource("/assets/style.css").toExternalForm());
-                } catch (Exception ignored) {}
-                modal.setScene(modalScene);
-                modal.showAndWait();
-            } catch (Exception ex) {
-                showAlert(Alert.AlertType.ERROR, "Erro ao processar veículos: " + ex.getMessage());
-            }
-        }));
-    }
-
-    // =========================================================================
-    // PAINEL MINHA OFICINA
-    // =========================================================================
-    private ScrollPane buildOficinaPane() {
-        VBox content = new VBox(24);
-        content.getStyleClass().add("dashboard-content");
-
-        Label title = new Label("MINHA OFICINA");
-        title.getStyleClass().add("content-title");
-
-        // Campos editáveis
-        TextField txtTelefone  = styledField("Telefone");
-        TextField txtHorarios  = styledField("Horários (ex: Seg-Sex 08h-18h)");
-        TextField txtEndereco  = styledField("Endereço");
-
-        Label lblInfo = new Label("Carregando dados da oficina...");
-        lblInfo.setStyle("-fx-text-fill:#9A9AAA; -fx-font-size:12px;");
-
-        Button btnSalvar = new Button("SALVAR ALTERAÇÕES");
-        btnSalvar.getStyleClass().add("big-button-primary");
-        btnSalvar.setPrefSize(240, 48);
-
-        // Carrega dados atuais
-        doGet("/oficinas").thenAccept(res -> Platform.runLater(() -> {
-            if (res == null || res.statusCode() != 200) {
-                lblInfo.setText("Não foi possível carregar os dados da oficina.");
-                return;
-            }
-            try {
-                List<?> lista = GSON.fromJson(res.body(), List.class);
-                if (lista != null && !lista.isEmpty() && lista.get(0) instanceof Map<?, ?> m) {
-                    Object vTel = m.get("telefone");
-                    txtTelefone.setText(String.valueOf(vTel != null ? vTel : ""));
-                    Object vHor = m.get("horarios");
-                    txtHorarios.setText(String.valueOf(vHor != null ? vHor : ""));
-                    Object vEnd = m.get("endereco");
-                    txtEndereco.setText(String.valueOf(vEnd != null ? vEnd : ""));
-                    if (workshopId == null && m.containsKey("id"))
-                        workshopId = String.valueOf(m.get("id"));
-                    lblInfo.setText("Dados carregados com sucesso.");
-                }
-            } catch (Exception ex) {
-                lblInfo.setText("Erro ao processar dados.");
-            }
-        }));
-
-        btnSalvar.setOnAction(e -> {
-            if (workshopId == null) {
-                showAlert(Alert.AlertType.WARNING, "ID da oficina não identificado.");
-                return;
-            }
-            Map<String, Object> body = new LinkedHashMap<>();
-            body.put("telefone", txtTelefone.getText());
-            body.put("horarios", txtHorarios.getText());
-            body.put("endereco", txtEndereco.getText());
-
-            btnSalvar.setText("SALVANDO...");
-            btnSalvar.setDisable(true);
-
-            doPut("/oficinas/" + workshopId, body).thenAccept(res -> Platform.runLater(() -> {
-                btnSalvar.setDisable(false);
-                btnSalvar.setText("SALVAR ALTERAÇÕES");
-                if (res != null && res.statusCode() >= 200 && res.statusCode() < 300) {
-                    lblInfo.setStyle("-fx-text-fill:#16BC4E; -fx-font-size:12px;");
-                    lblInfo.setText("✅ Dados atualizados com sucesso!");
-                } else {
-                    lblInfo.setStyle("-fx-text-fill:#FF4C4C; -fx-font-size:12px;");
-                    lblInfo.setText("Erro ao salvar. Cód: " + (res != null ? res.statusCode() : "?"));
-                }
-            }));
-        });
-
-        VBox formCard = new VBox(12);
-        formCard.setStyle(
-                "-fx-background-color:#111318;" +
-                        "-fx-background-radius:12;" +
-                        "-fx-border-color:#2A2A3A;" +
-                        "-fx-border-radius:12;" +
-                        "-fx-padding:24;"
-        );
-        formCard.setMaxWidth(480);
-        formCard.getChildren().addAll(
-                fieldLabel("TELEFONE"),    txtTelefone,
-                fieldLabel("HORÁRIOS"),    txtHorarios,
-                fieldLabel("ENDEREÇO"),    txtEndereco,
-                new Separator(),
-                btnSalvar, lblInfo
-        );
-
-        content.getChildren().addAll(title, formCard);
-
-        ScrollPane scroll = new ScrollPane(content);
-        scroll.setFitToWidth(true);
-        scroll.setStyle("-fx-background-color:transparent; -fx-background:#0B0B0B;");
-        return scroll;
-    }
-
-    // =========================================================================
-    // TABELA GENÉRICA
-    // =========================================================================
-    private TableView<Map<String, Object>> buildGenericTable(String[] cols, String[] keys) {
-        TableView<Map<String, Object>> table = new TableView<>();
-        table.getStyleClass().add("table-view");
-        table.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY);
         for (int i = 0; i < cols.length; i++) {
             final String key = keys[i];
             TableColumn<Map<String, Object>, Object> col = new TableColumn<>(cols[i]);
             col.setCellValueFactory(data ->
-                    new SimpleObjectProperty<>(data.getValue().getOrDefault(key, "-"))
-            );
-            col.setStyle("-fx-alignment:CENTER;");
+                    new SimpleObjectProperty<>(data.getValue().get(key)));
+            col.setStyle("-fx-alignment: CENTER;");
             table.getColumns().add(col);
         }
         return table;
     }
 
-    // =========================================================================
-    // REFRESH
-    // =========================================================================
-    private void autoRefresh() {
-        if (tabEndpoints.containsKey(currentTab)) refreshTab(currentTab);
-    }
-
-    @SuppressWarnings("unchecked")
-    private void refreshTab(String name) {
-        String[] keys = tabKeys.get(name);
-        TableView<Map<String, Object>> table = tabTables.get(name);
-        if (keys == null || table == null) return;
-
-        // Endpoint correto por aba
-        String endpoint;
-        if ("AGENDAMENTOS".equals(name)) {
-            endpoint = "/agendamentos";
-        } else if ("CLIENTES".equals(name) && workshopId != null) {
-            endpoint = "/oficinas/" + workshopId + "/clientes";
-        } else {
-            endpoint = tabEndpoints.get(name);
-        }
-
-        doGet(endpoint).thenAccept(res -> Platform.runLater(() -> {
-            if (res == null || res.statusCode() != 200) return;
-            try {
-                List<Map<String, Object>> rows = GSON.fromJson(
-                        res.body(),
-                        new com.google.gson.reflect.TypeToken<List<Map<String, Object>>>(){}.getType()
-                );
-                if (rows == null) return;
-                ObservableList<Map<String, Object>> data = FXCollections.observableArrayList();
-                for (Map<String, Object> row : rows) {
-                    Map<String, Object> normalized = new HashMap<>();
-                    for (String key : keys)
-                        normalized.put(key, row.getOrDefault(key, "-"));
-                    // Preserva o id original para operações
-                    if (row.containsKey("id"))
-                        normalized.put("id", row.get("id"));
-                    data.add(normalized);
+    private void addStatusContextMenu(TableView<Map<String, Object>> table) {
+        ContextMenu menu = new ContextMenu();
+        String[] statuses = {"PENDENTE", "CONFIRMADO", "CANCELADO", "CONCLUIDO"};
+        for (String s : statuses) {
+            MenuItem item = new MenuItem("Marcar como " + s);
+            item.setOnAction(e -> {
+                Map<String, Object> selected = table.getSelectionModel().getSelectedItem();
+                if (selected != null) {
+                    String id = String.valueOf(selected.get("id"));
+                    Map<String, String> body = Map.of("status", s);
+                    sendToAPI("PATCH", "api/appointments/" + id + "/status", body)
+                            .thenRun(() -> Platform.runLater(() -> refreshTab(currentTab)));
                 }
-                table.setItems(data);
-            } catch (Exception ignored) {}
-        }));
+            });
+            menu.getItems().add(item);
+        }
+        table.setRowFactory(tv -> {
+            TableRow<Map<String, Object>> row = new TableRow<>();
+            row.contextMenuProperty().bind(
+                    javafx.beans.binding.Bindings.when(row.emptyProperty())
+                            .then((ContextMenu) null).otherwise(menu));
+            return row;
+        });
     }
 
-    // =========================================================================
-    // HTTP — Métodos centralizados com JWT
-    // =========================================================================
-
-    private java.util.concurrent.CompletableFuture<HttpResponse<String>> doGet(String path) {
-        HttpRequest.Builder rb = HttpRequest.newBuilder()
-                .uri(URI.create(BASE_URL + path))
-                .GET();
-        if (jwtToken != null)
-            rb.header("Authorization", "Bearer " + jwtToken);
-        return HTTP.sendAsync(rb.build(), HttpResponse.BodyHandlers.ofString())
-                .exceptionally(ex -> null);
-    }
-
-    private java.util.concurrent.CompletableFuture<HttpResponse<String>> doPost(
-            String path, Object body, String tokenOverride) {
-        String json = GSON.toJson(body);
-        HttpRequest.Builder rb = HttpRequest.newBuilder()
-                .uri(URI.create(BASE_URL + path))
-                .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(json));
-        String tok = tokenOverride != null ? tokenOverride : jwtToken;
-        if (tok != null)
-            rb.header("Authorization", "Bearer " + tok);
-        return HTTP.sendAsync(rb.build(), HttpResponse.BodyHandlers.ofString())
-                .exceptionally(ex -> null);
-    }
-
-    private java.util.concurrent.CompletableFuture<HttpResponse<String>> doPut(
-            String path, Object body) {
-        String json = GSON.toJson(body);
-        HttpRequest.Builder rb = HttpRequest.newBuilder()
-                .uri(URI.create(BASE_URL + path))
-                .header("Content-Type", "application/json")
-                .PUT(HttpRequest.BodyPublishers.ofString(json));
-        if (jwtToken != null)
-            rb.header("Authorization", "Bearer " + jwtToken);
-        return HTTP.sendAsync(rb.build(), HttpResponse.BodyHandlers.ofString())
-                .exceptionally(ex -> null);
-    }
-
-    private java.util.concurrent.CompletableFuture<HttpResponse<String>> doDelete(String path) {
-        HttpRequest.Builder rb = HttpRequest.newBuilder()
-                .uri(URI.create(BASE_URL + path))
-                .DELETE();
-        if (jwtToken != null)
-            rb.header("Authorization", "Bearer " + jwtToken);
-        return HTTP.sendAsync(rb.build(), HttpResponse.BodyHandlers.ofString())
-                .exceptionally(ex -> null);
-    }
-
-    // =========================================================================
-    // UTILITÁRIOS
-    // =========================================================================
+    // -------------------------------------------------------------------------
+    // Painel de boas-vindas
+    // -------------------------------------------------------------------------
     private StackPane buildWelcomePane() {
         StackPane pane = new StackPane();
         pane.getStyleClass().add("master-panel");
         Label lbl = new Label("Selecione uma opção no menu.");
-        lbl.setStyle("-fx-text-fill:#9A9AAA; -fx-font-size:18px;");
+        lbl.setStyle("-fx-text-fill: #9A9AAA; -fx-font-size:18px;");
         pane.getChildren().add(lbl);
         return pane;
+    }
+
+    // =========================================================================
+    // WIZARD DE CADASTRO EM 3 ETAPAS
+    // =========================================================================
+    /**
+     * Etapa 1 — Processar pagamento (POST /oficinas/initiate-registration)
+     * Simula o pagamento do plano e recebe o registrationToken.
+     * Após sucesso, avança para a Etapa 2.
+     */
+    private ScrollPane buildRegistrationWizard() {
+        VBox content = new VBox(30);
+        content.getStyleClass().add("dashboard-content");
+
+        // ── Cabeçalho ────────────────────────────────────────────────────────
+        Label title = new Label("CADASTRAR NOVA OFICINA");
+        title.getStyleClass().add("content-title");
+
+        Label stepLabel = new Label("ETAPA 1 DE 3  —  Pagamento do Plano");
+        stepLabel.setStyle("-fx-text-fill: #16BC4E; -fx-font-size:13px; -fx-font-weight:700;");
+
+        Label description = new Label(
+                "Selecione um plano e confirme o pagamento para gerar o token de registro da oficina.\n" +
+                        "O token será usado na próxima etapa para completar o cadastro.");
+        description.setStyle("-fx-text-fill: #9A9AAA; -fx-font-size:13px;");
+        description.setWrapText(true);
+
+        // ── Seleção de plano ─────────────────────────────────────────────────
+        VBox planCard = formCard("PLANO DE ASSINATURA");
+        ToggleGroup planGroup = new ToggleGroup();
+        String[][] plans = {
+                {"Básico",    "R$ 99/mês  — até 2 usuários, relatórios básicos"},
+                {"Profissional", "R$ 199/mês — até 10 usuários, relatórios avançados"},
+                {"Empresarial",  "R$ 399/mês — usuários ilimitados, suporte prioritário"}
+        };
+        for (String[] plan : plans) {
+            RadioButton rb = new RadioButton(plan[0] + "   |   " + plan[1]);
+            rb.setToggleGroup(planGroup);
+            rb.setStyle("-fx-text-fill: #E0E0E0; -fx-font-size:13px;");
+            VBox.setMargin(rb, new Insets(4, 0, 4, 0));
+            planCard.getChildren().add(rb);
+        }
+        // Seleciona o primeiro plano por padrão
+        planGroup.getToggles().get(0).setSelected(true);
+
+        // ── Dados do cartão (simulação) ──────────────────────────────────────
+        VBox payCard = formCard("DADOS DE PAGAMENTO");
+        TextField txtCardName   = styledField("Nome no cartão");
+        TextField txtCardNumber = styledField("Número do cartão (ex: 4111 1111 1111 1111)");
+        HBox expiryRow = new HBox(12);
+        TextField txtExpiry = styledField("Validade (MM/AA)");
+        TextField txtCvv    = styledField("CVV");
+        txtExpiry.setPrefWidth(160);
+        txtCvv.setPrefWidth(100);
+        expiryRow.getChildren().addAll(txtExpiry, txtCvv);
+
+        payCard.getChildren().addAll(
+                fieldLabel("NOME NO CARTÃO"),   txtCardName,
+                fieldLabel("NÚMERO DO CARTÃO"), txtCardNumber,
+                fieldLabel("VALIDADE / CVV"),   expiryRow
+        );
+
+        // ── Card de resultado (token) ─────────────────────────────────────────
+        VBox resultCard = formCard("TOKEN DE REGISTRO GERADO");
+        resultCard.setVisible(false);
+        resultCard.setManaged(false);
+        resultCard.setStyle("-fx-border-color: #16BC4E; -fx-border-width: 1; -fx-border-radius: 6;");
+
+        Label tokenLabel = new Label("—");
+        tokenLabel.setStyle(
+                "-fx-text-fill: #16BC4E; -fx-font-family: monospace; " +
+                        "-fx-font-size: 15px; -fx-font-weight:700;");
+        tokenLabel.setWrapText(true);
+
+        Label tokenMsg = new Label(
+                "✅  Pagamento confirmado! Guarde este token — ele é necessário para completar o cadastro da oficina.");
+        tokenMsg.setStyle("-fx-text-fill: #9A9AAA; -fx-font-size:12px;");
+        tokenMsg.setWrapText(true);
+
+        resultCard.getChildren().addAll(fieldLabel("TOKEN"), tokenLabel, tokenMsg);
+
+        // ── Botões ────────────────────────────────────────────────────────────
+        Button btnPay = new Button("CONFIRMAR PAGAMENTO");
+        btnPay.getStyleClass().add("big-button-primary");
+        btnPay.setPrefSize(300, 52);
+
+        Button btnNext = new Button("PRÓXIMA ETAPA →");
+        btnNext.getStyleClass().add("big-button-primary");
+        btnNext.setPrefSize(220, 52);
+        btnNext.setVisible(false);
+        btnNext.setManaged(false);
+
+        final String[] generatedToken = {null};
+
+        btnPay.setOnAction(e -> {
+            btnPay.setText("PROCESSANDO..."); btnPay.setDisable(true);
+
+            postInitiateRegistration().thenAccept(token -> // Chamada corrigida
+                    Platform.runLater(() -> {
+                        btnPay.setText("CONFIRMAR PAGAMENTO"); btnPay.setDisable(false);
+                        if (token != null) {
+                            generatedToken[0] = token;
+                            tokenLabel.setText(token);
+                            resultCard.setVisible(true);
+                            resultCard.setManaged(true);
+                            btnNext.setVisible(true);
+                            btnNext.setManaged(true);
+                            btnPay.setVisible(false);
+                            btnPay.setManaged(false);
+                        } else {
+                            showAlert(Alert.AlertType.ERROR,
+                                    "Falha ao processar pagamento. Verifique os dados e a conexão com a API.");
+                        }
+                    })
+            );
+        });
+
+        btnNext.setOnAction(e ->
+                dashPane.setCenter(buildStep2Pane(generatedToken[0]))
+        );
+
+        content.getChildren().addAll(
+                title, stepLabel, description, planCard, payCard, btnPay, resultCard, btnNext);
+
+        ScrollPane scroll = new ScrollPane(content);
+        scroll.setFitToWidth(true);
+        scroll.setStyle("-fx-background-color: transparent; -fx-background: #0B0B0B;");
+        return scroll;
+    }
+
+    /**
+     * Etapa 2 — Completar registro (POST /oficinas/complete-registration)
+     * Formulário completo da oficina usando o token gerado na Etapa 1.
+     */
+    private ScrollPane buildStep2Pane(String registrationToken) {
+        VBox content = new VBox(30);
+        content.getStyleClass().add("dashboard-content");
+
+        // ── Cabeçalho ────────────────────────────────────────────────────────
+        Label title = new Label("CADASTRAR NOVA OFICINA");
+        title.getStyleClass().add("content-title");
+
+        Label stepLabel = new Label("ETAPA 2 DE 3  —  Dados da Oficina");
+        stepLabel.setStyle("-fx-text-fill: #16BC4E; -fx-font-size:13px; -fx-font-weight:700;");
+
+        // ── Exibir token em uso ───────────────────────────────────────────────
+        VBox tokenInfo = formCard("TOKEN ATIVO");
+        Label tokenDisplay = new Label(registrationToken != null ? registrationToken : "—");
+        tokenDisplay.setStyle("-fx-text-fill: #16BC4E; -fx-font-family: monospace; -fx-font-size:12px;");
+        tokenDisplay.setWrapText(true);
+        tokenInfo.getChildren().addAll(fieldLabel("REGISTRATION TOKEN"), tokenDisplay);
+
+        // ── Grid de formulário ────────────────────────────────────────────────
+        HBox grid = new HBox(24);
+        HBox.setHgrow(grid, Priority.ALWAYS);
+
+        // Coluna 1 — Identificação
+        VBox card1 = formCard("IDENTIFICAÇÃO");
+        TextField txtNome     = styledField("Nome da Oficina");
+        TextField txtEmail    = styledField("E-mail");
+        TextField txtTel      = styledField("Telefone");
+        TextField txtWebsite  = styledField("Website (opcional)");
+        card1.getChildren().addAll(
+                fieldLabel("NOME"), txtNome,
+                fieldLabel("E-MAIL"), txtEmail,
+                fieldLabel("TELEFONE"), txtTel,
+                fieldLabel("WEBSITE"), txtWebsite
+        );
+
+        // Coluna 2 — Localização
+        VBox card2 = formCard("LOCALIZAÇÃO");
+        TextField txtEndereco = styledField("Endereço completo");
+        TextField txtLat      = styledField("Latitude");
+        TextField txtLon      = styledField("Longitude");
+        card2.getChildren().addAll(
+                fieldLabel("ENDEREÇO"), txtEndereco,
+                fieldLabel("LATITUDE"), txtLat,
+                fieldLabel("LONGITUDE"), txtLon
+        );
+
+        // Coluna 3 — Operação
+        VBox card3 = formCard("OPERAÇÃO");
+        TextField txtHorario       = styledField("Ex: Seg-Sex 08:00-18:00");
+        TextField txtFormasPag     = styledField("Ex: Cartão, Dinheiro, Pix");
+        TextField txtEspecialidades = styledField("Ex: Mecânica Geral, Elétrica");
+        card3.getChildren().addAll(
+                fieldLabel("HORÁRIO DE FUNCIONAMENTO"), txtHorario,
+                fieldLabel("FORMAS DE PAGAMENTO"), txtFormasPag,
+                fieldLabel("ESPECIALIDADES"), txtEspecialidades
+        );
+
+        // Coluna 4 — Serviços
+        VBox card4 = formCard("SERVIÇOS");
+        String[] services = {"Freios", "Suspensão", "Motor", "Óleo", "Revisão", "Elétrica"};
+        List<CheckBox> checkBoxes = new ArrayList<>();
+        for (String s : services) {
+            CheckBox cb = new CheckBox(s);
+            cb.getStyleClass().add("check-box");
+            checkBoxes.add(cb);
+            card4.getChildren().add(cb);
+        }
+
+        grid.getChildren().addAll(card1, card2, card3, card4);
+        for (javafx.scene.Node n : grid.getChildren())
+            HBox.setHgrow(n, Priority.ALWAYS);
+
+        // ── Botão salvar ─────────────────────────────────────────────────────
+        Button btnSave = new Button("CONCLUIR CADASTRO DA OFICINA");
+        btnSave.getStyleClass().add("big-button-primary");
+        btnSave.setPrefSize(380, 52);
+
+        // Referência mutável para capturar o oficinaId retornado
+        final long[] resolvedOficinaId = {-1L};
+
+        btnSave.setOnAction(e -> {
+            if (txtNome.getText().isBlank() || txtEmail.getText().isBlank()
+                    || txtTel.getText().isBlank() || txtEndereco.getText().isBlank()) {
+                showAlert(Alert.AlertType.WARNING, "Preencha ao menos: Nome, E-mail, Telefone e Endereço.");
+                return;
+            }
+
+            btnSave.setText("ENVIANDO..."); btnSave.setDisable(true);
+
+            List<String> servs = new ArrayList<>();
+            for (CheckBox cb : checkBoxes) if (cb.isSelected()) servs.add(cb.getText());
+
+            Map<String, Object> data = new LinkedHashMap<>();
+            data.put("registrationToken", registrationToken);
+            data.put("nome",              txtNome.getText());
+            data.put("servicos",          String.join(", ", servs));
+            data.put("endereco",          txtEndereco.getText());
+            try {
+                data.put("latitude",  Double.parseDouble(txtLat.getText()));
+                data.put("longitude", Double.parseDouble(txtLon.getText()));
+            } catch (Exception ex) {
+                data.put("latitude",  0.0);
+                data.put("longitude", 0.0);
+            }
+            data.put("telefone",          txtTel.getText());
+            data.put("email",             txtEmail.getText());
+            data.put("horarioFuncionamento", txtHorario.getText());
+            data.put("website",           txtWebsite.getText());
+            data.put("formasPagamento",   txtFormasPag.getText());
+            data.put("especialidades",    txtEspecialidades.getText());
+
+            postCompleteRegistration(data).thenAccept(oficinaId ->
+                    Platform.runLater(() -> {
+                        btnSave.setText("CONCLUIR CADASTRO DA OFICINA");
+                        btnSave.setDisable(false);
+                        if (oficinaId != null) {
+                            resolvedOficinaId[0] = oficinaId;
+                            dashPane.setCenter(buildStep3Pane(oficinaId));
+                        } else {
+                            showAlert(Alert.AlertType.ERROR, "Falha ao concluir cadastro. Token inválido ou oficina já registrada.");
+                        }
+                    })
+            );
+        });
+
+        autoDetectLocation(txtEndereco, txtLat, txtLon);
+
+        content.getChildren().addAll(title, stepLabel, tokenInfo, grid, btnSave);
+
+        ScrollPane scroll = new ScrollPane(content);
+        scroll.setFitToWidth(true);
+        scroll.setStyle("-fx-background-color: transparent; -fx-background: #0B0B0B;");
+        return scroll;
+    }
+
+    /**
+     * Etapa 3 — Registrar usuário da oficina (POST /oficina-users/register)
+     * Cria o login do dono da oficina com o ID da oficina ativa.
+     */
+    private ScrollPane buildStep3Pane(long oficinaId) {
+        VBox content = new VBox(30);
+        content.getStyleClass().add("dashboard-content");
+
+        // ── Cabeçalho ────────────────────────────────────────────────────────
+        Label title = new Label("CADASTRAR NOVA OFICINA");
+        title.getStyleClass().add("content-title");
+
+        Label stepLabel = new Label("ETAPA 3 DE 3  —  Criar Usuário da Oficina");
+        stepLabel.setStyle("-fx-text-fill: #16BC4E; -fx-font-size:13px; -fx-font-weight:700;");
+
+        Label successBanner = new Label("✅  Oficina registrada com sucesso! ID: " + oficinaId);
+        successBanner.setStyle(
+                "-fx-text-fill: #16BC4E; -fx-font-size:14px; -fx-font-weight:700; " +
+                        "-fx-background-color: #0d2b1a; -fx-padding: 12 20 12 20; -fx-background-radius: 8;");
+
+        Label description = new Label(
+                "Agora crie o usuário de acesso para este dono de oficina.\n" +
+                        "O ID da oficina (" + oficinaId + ") será vinculado automaticamente.");
+        description.setStyle("-fx-text-fill: #9A9AAA; -fx-font-size:13px;");
+        description.setWrapText(true);
+
+        // ── Formulário ────────────────────────────────────────────────────────
+        VBox card = formCard("CREDENCIAIS DO USUÁRIO");
+        card.setMaxWidth(480);
+
+        TextField    txtUsername = styledField("Nome de usuário (login)");
+        PasswordField txtPassword = new PasswordField();
+        txtPassword.setPromptText("Senha segura");
+        txtPassword.getStyleClass().add("text-field-styled");
+
+        Label idInfo = new Label("ID DA OFICINA VINCULADA: " + oficinaId);
+        idInfo.setStyle("-fx-text-fill: #16BC4E; -fx-font-size:12px; -fx-font-family: monospace;");
+
+        card.getChildren().addAll(
+                fieldLabel("USUÁRIO"), txtUsername,
+                fieldLabel("SENHA"),   txtPassword,
+                fieldLabel(""),        idInfo
+        );
+
+        // ── Botão registrar ──────────────────────────────────────────────────
+        Button btnRegister = new Button("REGISTRAR USUÁRIO");
+        btnRegister.getStyleClass().add("big-button-primary");
+        btnRegister.setPrefSize(260, 52);
+
+        btnRegister.setOnAction(e -> {
+            if (txtUsername.getText().isBlank() || txtPassword.getText().isBlank()) {
+                showAlert(Alert.AlertType.WARNING, "Preencha usuário e senha.");
+                return;
+            }
+
+            btnRegister.setText("REGISTRANDO..."); btnRegister.setDisable(true);
+
+            Map<String, Object> data = new LinkedHashMap<>();
+            data.put("username",  txtUsername.getText());
+            data.put("password",  txtPassword.getText());
+            data.put("oficinaId", String.valueOf(oficinaId));
+
+            postRegisterOficinaUser(data).thenAccept(success ->
+                    Platform.runLater(() -> {
+                        btnRegister.setText("REGISTRAR USUÁRIO");
+                        btnRegister.setDisable(false);
+                        if (success) {
+                            showAlert(Alert.AlertType.INFORMATION,
+                                    "Usuário '" + txtUsername.getText() + "' registrado com sucesso!\n" +
+                                            "Cadastro completo da oficina (ID: " + oficinaId + ") concluído.");
+                            // Volta para o dashboard principal
+                            dashPane.setCenter(buildWelcomePane());
+                        } else {
+                            showAlert(Alert.AlertType.ERROR,
+                                    "Erro ao registrar usuário. Username já existe ou oficina não encontrada.");
+                        }
+                    })
+            );
+        });
+
+        content.getChildren().addAll(title, stepLabel, successBanner, description, card, btnRegister);
+
+        ScrollPane scroll = new ScrollPane(content);
+        scroll.setFitToWidth(true);
+        scroll.setStyle("-fx-background-color: transparent; -fx-background: #0B0B0B;");
+        return scroll;
+    }
+
+    // =========================================================================
+    // Chamadas de API específicas do fluxo de cadastro
+    // =========================================================================
+
+    /**
+     * POST /oficinas/initiate-registration
+     * Inicia o registro da oficina e retorna o registrationToken, ou null em caso de falha.
+     * O endpoint não requer corpo na versão atual; em produção enviaria dados do cartão/plano.
+     */
+    private java.util.concurrent.CompletableFuture<String> postInitiateRegistration() { // Renomeado
+        HttpRequest.Builder rb = HttpRequest.newBuilder()
+                .uri(URI.create(BASE_URL + "oficinas/initiate-registration")) // URI corrigida
+                .header("Content-Type", "application/json");
+        if (jwtToken != null) rb.header("Authorization", "Bearer " + jwtToken);
+        HttpRequest request = rb.POST(HttpRequest.BodyPublishers.noBody()).build();
+
+        return HTTP.sendAsync(request, HttpResponse.BodyHandlers.ofString())
+                .thenApply(res -> {
+                    System.out.println("[initiate-registration] Status: " + res.statusCode() + " | " + res.body());
+                    // Aceita 200 ou 201 como sucesso
+                    if (res.statusCode() == 200 || res.statusCode() == 201) {
+                        try {
+                            Map<String, Object> body = GSON.fromJson(res.body(),
+                                    new com.google.gson.reflect.TypeToken<Map<String, Object>>(){}.getType());
+                            return (String) body.get("registrationToken");
+                        } catch (Exception ex) {
+                            System.err.println("[initiate-registration] Parse error: " + ex.getMessage());
+                            return null;
+                        }
+                    }
+                    return null;
+                }).exceptionally(ex -> {
+                    System.err.println("[initiate-registration] Exception: " + ex.getMessage());
+                    return null;
+                });
+    }
+
+    /**
+     * POST /oficinas/complete-registration
+     * Retorna o ID (Long) da oficina ativada, ou null em caso de falha.
+     */
+    private java.util.concurrent.CompletableFuture<Long> postCompleteRegistration(Map<String, Object> data) {
+        String json = GSON.toJson(data);
+        HttpRequest.Builder rb = HttpRequest.newBuilder()
+                .uri(URI.create(BASE_URL + "oficinas/complete-registration"))
+                .header("Content-Type", "application/json");
+        if (jwtToken != null) rb.header("Authorization", "Bearer " + jwtToken);
+        HttpRequest request = rb.POST(HttpRequest.BodyPublishers.ofString(json)).build();
+
+        return HTTP.sendAsync(request, HttpResponse.BodyHandlers.ofString())
+                .thenApply(res -> {
+                    System.out.println("[complete-registration] Status: " + res.statusCode() + " | " + res.body());
+                    if (res.statusCode() == 200) {
+                        try {
+                            // Resposta: {"message": "Registro da oficina concluído com sucesso! ID da Oficina: 123"}
+                            Map<String, Object> body = GSON.fromJson(res.body(),
+                                    new com.google.gson.reflect.TypeToken<Map<String, Object>>(){}.getType());
+                            String message = (String) body.get("message");
+                            // Extrai o ID numérico da mensagem
+                            String[] parts = message.split(":");
+                            if (parts.length > 1) {
+                                String idStr = parts[parts.length - 1].trim();
+                                return Long.parseLong(idStr);
+                            }
+                        } catch (Exception ex) {
+                            System.err.println("[complete-registration] Parse error: " + ex.getMessage());
+                        }
+                    }
+                    return null;
+                }).exceptionally(ex -> {
+                    System.err.println("[complete-registration] Exception: " + ex.getMessage());
+                    return null;
+                });
+    }
+
+    /**
+     * POST /oficina-users/register
+     * Retorna true em caso de sucesso (200), false caso contrário.
+     */
+    private java.util.concurrent.CompletableFuture<Boolean> postRegisterOficinaUser(Map<String, Object> data) {
+        String json = GSON.toJson(data);
+        HttpRequest.Builder rb = HttpRequest.newBuilder()
+                .uri(URI.create(BASE_URL + "oficina-users/register"))
+                .header("Content-Type", "application/json");
+        if (jwtToken != null) rb.header("Authorization", "Bearer " + jwtToken);
+        HttpRequest request = rb.POST(HttpRequest.BodyPublishers.ofString(json)).build();
+
+        return HTTP.sendAsync(request, HttpResponse.BodyHandlers.ofString())
+                .thenApply(res -> {
+                    System.out.println("[oficina-users/register] Status: " + res.statusCode() + " | " + res.body());
+                    return res.statusCode() == 200;
+                }).exceptionally(ex -> {
+                    System.err.println("[oficina-users/register] Exception: " + ex.getMessage());
+                    return false;
+                });
+    }
+
+    // =========================================================================
+    // CONFIG / CADASTRO LEGADO (mantido para referência futura)
+    // =========================================================================
+    private ScrollPane buildConfigPane(boolean isNew) {
+        VBox content = new VBox(30);
+        content.getStyleClass().add("dashboard-content");
+
+        HBox header = new HBox();
+        header.setAlignment(Pos.CENTER_LEFT);
+
+        Label title = new Label(isNew ? "NOVO CADASTRO" : "CONFIGURAÇÃO");
+        title.getStyleClass().add("content-title");
+        HBox.setHgrow(title, Priority.ALWAYS);
+
+        Button btnSave = new Button("SALVAR NO BANCO");
+        btnSave.getStyleClass().add("big-button-primary");
+        btnSave.setPrefSize(200, 52);
+
+        header.getChildren().addAll(title, btnSave);
+        content.getChildren().add(header);
+
+        HBox grid = new HBox(24);
+        HBox.setHgrow(grid, Priority.ALWAYS);
+
+        VBox card1 = formCard("DADOS DA EMPRESA");
+        TextField txtNome  = styledField("NOME");
+        TextField txtLocal = styledField("ENDEREÇO");
+        TextField txtTel   = styledField("TELEFONE");
+        TextField txtLat   = styledField("LATITUDE");
+        TextField txtLon   = styledField("LONGITUDE");
+        card1.getChildren().addAll(
+                fieldLabel("NOME"), txtNome,
+                fieldLabel("ENDEREÇO"), txtLocal,
+                fieldLabel("TELEFONE"), txtTel,
+                fieldLabel("LATITUDE"), txtLat,
+                fieldLabel("LONGITUDE"), txtLon);
+
+        VBox card3 = formCard("SERVIÇOS");
+        String[] services = {"Freios", "Suspensão", "Motor", "Óleo", "Revisão", "Elétrica"};
+        List<CheckBox> checkBoxes = new ArrayList<>();
+        for (String s : services) {
+            CheckBox cb = new CheckBox(s);
+            cb.getStyleClass().add("check-box");
+            checkBoxes.add(cb);
+            card3.getChildren().add(cb);
+        }
+
+        grid.getChildren().addAll(card1, card3);
+        for (javafx.scene.Node n : grid.getChildren())
+            HBox.setHgrow(n, Priority.ALWAYS);
+
+        content.getChildren().add(grid);
+
+        btnSave.setOnAction(e -> {
+            btnSave.setText("ENVIANDO..."); btnSave.setDisable(true);
+
+            List<String> servs = new ArrayList<>();
+            for (CheckBox cb : checkBoxes) if (cb.isSelected()) servs.add(cb.getText());
+
+            Map<String, Object> data = new HashMap<>();
+            data.put("nome",     txtNome.getText());
+            data.put("endereco", txtLocal.getText());
+            data.put("telefone", txtTel.getText());
+            try {
+                data.put("latitude",  Double.parseDouble(txtLat.getText()));
+                data.put("longitude", Double.parseDouble(txtLon.getText()));
+            } catch (Exception ex) { data.put("latitude", 0.0); data.put("longitude", 0.0); }
+            data.put("servicos", String.join(", ", servs));
+
+            String method   = isNew ? "POST" : "PUT";
+            String endpoint = isNew ? "api/oficinas" : "api/oficinas/" + workshopId;
+
+            sendToAPI(method, endpoint, data).thenAccept(ok ->
+                    Platform.runLater(() -> {
+                        btnSave.setText("SALVAR NO BANCO"); btnSave.setDisable(false);
+                        showAlert(ok ? Alert.AlertType.INFORMATION : Alert.AlertType.ERROR,
+                                ok ? "Sucesso! Oficina salva no banco."
+                                        : "Erro 500: Verifique mecânicos/serviços.");
+                    })
+            );
+        });
+
+        autoDetectLocation(txtLocal, txtLat, txtLon);
+
+        ScrollPane scroll = new ScrollPane(content);
+        scroll.setFitToWidth(true);
+        scroll.setStyle("-fx-background-color: transparent; -fx-background: #0B0B0B;");
+        return scroll;
+    }
+
+    // -------------------------------------------------------------------------
+    // Helpers de formulário
+    // -------------------------------------------------------------------------
+    private VBox formCard(String title) {
+        VBox card = new VBox(10);
+        card.getStyleClass().add("form-card");
+        Label lbl = new Label(title);
+        lbl.setStyle("-fx-text-fill: #16BC4E; -fx-font-weight: 700; -fx-font-size: 13px;");
+        card.getChildren().add(lbl);
+        return card;
     }
 
     private TextField styledField(String prompt) {
@@ -951,22 +910,110 @@ public class Main extends Application {
 
     private Label fieldLabel(String text) {
         Label l = new Label(text);
-        l.setStyle("-fx-text-fill:#9A9AAA; -fx-font-size:10px; -fx-font-weight:600;");
+        l.setStyle("-fx-text-fill: #9A9AAA; -fx-font-size: 10px; -fx-font-weight: 600;");
         VBox.setMargin(l, new Insets(6, 0, 0, 0));
         return l;
     }
 
     private void showAlert(Alert.AlertType type, String message) {
-        Platform.runLater(() -> {
-            Alert alert = new Alert(type);
-            alert.setHeaderText(null);
-            alert.setContentText(message);
-            alert.showAndWait();
-        });
+        Alert alert = new Alert(type);
+        alert.setHeaderText(null);
+        alert.setContentText(message);
+        alert.showAndWait();
     }
 
     // =========================================================================
-    // ENCERRAMENTO
+    // Refresh de dados
+    // =========================================================================
+    private void autoRefresh() {
+        if (tabEndpoints.containsKey(currentTab)) refreshTab(currentTab);
+    }
+
+    private void refreshTab(String name) {
+        String endpoint = tabEndpoints.get(name);
+        String[] keys   = tabKeys.get(name);
+        TableView<Map<String, Object>> table = tabTables.get(name);
+        if (endpoint == null || table == null) return;
+
+        if ("AGENDAMENTOS".equals(name)) {
+            endpoint = "api/appointments/oficina/" + workshopId;
+            if (table.getRowFactory() == null) addStatusContextMenu(table);
+        }
+
+        HttpRequest.Builder getBuilder = HttpRequest.newBuilder()
+                .uri(URI.create(BASE_URL + endpoint))
+                .header("Content-Type", "application/json");
+        if (jwtToken != null) getBuilder.header("Authorization", "Bearer " + jwtToken);
+
+        HTTP.sendAsync(getBuilder.build(), HttpResponse.BodyHandlers.ofString())
+                .thenAccept(res -> {
+                    List<Map<String, Object>> rows = GSON.fromJson(
+                            res.body(), new com.google.gson.reflect.TypeToken<
+                                    List<Map<String, Object>>>(){}.getType());
+                    if (rows == null) return;
+                    Platform.runLater(() -> {
+                        ObservableList<Map<String, Object>> data = FXCollections.observableArrayList();
+                        for (Map<String, Object> row : rows) {
+                            Map<String, Object> normalized = new HashMap<>();
+                            for (String key : keys)
+                                normalized.put(key, row.getOrDefault(key, "-"));
+                            data.add(normalized);
+                        }
+                        table.setItems(data);
+                    });
+                }).exceptionally(ex -> null);
+    }
+
+    // =========================================================================
+    // API HTTP genérica
+    // =========================================================================
+    private java.util.concurrent.CompletableFuture<Boolean> sendToAPI(
+            String method, String endpoint, Object data) {
+
+        String json = GSON.toJson(data);
+        HttpRequest.Builder rb = HttpRequest.newBuilder()
+                .uri(URI.create(BASE_URL + endpoint))
+                .header("Content-Type", "application/json");
+        if (jwtToken != null) rb.header("Authorization", "Bearer " + jwtToken);
+        if ("POST".equals(method))  rb.POST(HttpRequest.BodyPublishers.ofString(json));
+        else                        rb.PUT(HttpRequest.BodyPublishers.ofString(json));
+        if ("PATCH".equals(method)) rb.method("PATCH", HttpRequest.BodyPublishers.ofString(json));
+
+        return HTTP.sendAsync(rb.build(), HttpResponse.BodyHandlers.ofString())
+                .thenApply(res -> {
+                    System.out.println("Status: " + res.statusCode() + " | " + res.body());
+                    if (res.statusCode() == 201) {
+                        try {
+                            Map<String, Object> r = GSON.fromJson(res.body(),
+                                    new com.google.gson.reflect.TypeToken<
+                                            Map<String, Object>>(){}.getType());
+                            workshopId = r.get("id").toString();
+                        } catch (Exception ignored) {}
+                    }
+                    return res.statusCode() >= 200 && res.statusCode() < 300;
+                }).exceptionally(ex -> false);
+    }
+
+    private void autoDetectLocation(TextField txtLoc, TextField txtLat, TextField txtLon) {
+        HTTP.sendAsync(
+                        HttpRequest.newBuilder().uri(URI.create("http://ip-api.com/json/")).build(),
+                        HttpResponse.BodyHandlers.ofString())
+                .thenAccept(res -> {
+                    Map<String, Object> d = GSON.fromJson(res.body(),
+                            new com.google.gson.reflect.TypeToken<
+                                    Map<String, Object>>(){}.getType());
+                    if (d != null && "success".equals(d.get("status"))) {
+                        Platform.runLater(() -> {
+                            txtLat.setText(String.valueOf(d.get("lat")));
+                            txtLon.setText(String.valueOf(d.get("lon")));
+                            txtLoc.setText(d.get("city") + ", " + d.get("regionName"));
+                        });
+                    }
+                }).exceptionally(ex -> null);
+    }
+
+    // =========================================================================
+    // Encerramento
     // =========================================================================
     @Override
     public void stop() {
@@ -974,7 +1021,7 @@ public class Main extends Application {
     }
 
     // =========================================================================
-    // MAIN
+    // main
     // =========================================================================
     public static void main(String[] args) {
         launch(args);
