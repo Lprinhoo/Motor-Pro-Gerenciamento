@@ -23,33 +23,23 @@ import java.util.concurrent.TimeUnit;
 
 public class Main extends Application {
 
-    // -------------------------------------------------------------------------
-    // Constantes
-    // -------------------------------------------------------------------------
     private static final String BASE_URL = "https://api-java-production-5e77.up.railway.app/";
     private static final HttpClient HTTP  = HttpClient.newBuilder()
             .connectTimeout(java.time.Duration.ofSeconds(15)).build();
     private static final Gson GSON = new Gson();
 
-    // -------------------------------------------------------------------------
-    // Estado
-    // -------------------------------------------------------------------------
     private String workshopId      = "550e8400-e29b-41d4-a716-446655440000";
     private String currentTab      = "VEÍCULOS";
-    private String jwtToken        = null; // Bearer token obtido no login
+    private String jwtToken        = null;
     private final Map<String, TableView<Map<String, Object>>> tabTables    = new HashMap<>();
     private final Map<String, String>                         tabEndpoints = new HashMap<>();
     private final Map<String, String[]>                       tabKeys      = new HashMap<>();
 
     private ScheduledExecutorService scheduler;
 
-    // Layout raiz
     private StackPane  root;
     private BorderPane dashPane;
 
-    // -------------------------------------------------------------------------
-    // Inicialização JavaFX
-    // -------------------------------------------------------------------------
     @Override
     public void start(Stage stage) {
         root = new StackPane();
@@ -71,9 +61,6 @@ public class Main extends Application {
         showLaunchScreen();
     }
 
-    // =========================================================================
-    // TELA DE LOGIN
-    // =========================================================================
     private void showLaunchScreen() {
         VBox card = new VBox(20);
         card.setAlignment(Pos.CENTER);
@@ -83,7 +70,6 @@ public class Main extends Application {
         logo.getStyleClass().add("content-title");
         VBox.setMargin(logo, new Insets(0, 0, 16, 0));
 
-        // ── campos ──────────────────────────────────────────────────────────
         TextField    txtUser = styledField("Usuário");
         PasswordField txtPass = new PasswordField();
         txtPass.setPromptText("Senha");
@@ -93,13 +79,11 @@ public class Main extends Application {
         lblError.setStyle("-fx-text-fill: #FF4C4C; -fx-font-size:12px;");
         lblError.setVisible(false);
 
-        // ── botão login ──────────────────────────────────────────────────────
         Button btnLogin = new Button("ENTRAR");
         btnLogin.getStyleClass().add("big-button-primary");
         btnLogin.setMaxWidth(Double.MAX_VALUE);
         btnLogin.setPrefHeight(52);
 
-        // ── botão entrar sem login (modo offline / sem autenticação) ─────────
         Button btnSkip = new Button("Entrar sem login  →");
         btnSkip.setStyle("-fx-background-color: transparent; -fx-text-fill: #9A9AAA; " +
                 "-fx-font-size:12px; -fx-cursor: hand;");
@@ -131,7 +115,6 @@ public class Main extends Application {
         };
 
         btnLogin.setOnAction(e -> doLogin.run());
-        // Enter nos campos também dispara o login
         txtUser.setOnAction(e -> doLogin.run());
         txtPass.setOnAction(e -> doLogin.run());
 
@@ -145,13 +128,7 @@ public class Main extends Application {
         root.getChildren().setAll(launch);
     }
 
-    /**
-     * POST /oficina-users/login (ou /auth/login)
-     * Retorna o JWT token ou null se falhar.
-     * Tenta os dois endpoints mais comuns de Spring Security.
-     */
     private java.util.concurrent.CompletableFuture<String> postLogin(String username, String password) {
-        // Tenta /oficina-users/login primeiro; se não existir tenta /auth/login
         return tryLoginEndpoint("oficina-users/login", username, password)
                 .thenCompose(token -> {
                     if (token != null) return java.util.concurrent.CompletableFuture.completedFuture(token);
@@ -182,7 +159,6 @@ public class Main extends Application {
                             Map<String, Object> r = GSON.fromJson(res.body(),
                                     new com.google.gson.reflect.TypeToken<
                                             Map<String, Object>>(){}.getType());
-                            // Aceita chaves comuns: token, accessToken, jwt, access_token
                             for (String key : new String[]{"token","accessToken","jwt","access_token"}) {
                                 if (r.containsKey(key)) return (String) r.get(key);
                             }
@@ -192,9 +168,6 @@ public class Main extends Application {
                 }).exceptionally(ex -> null);
     }
 
-    // =========================================================================
-    // DASHBOARD
-    // =========================================================================
     private void showDashboard() {
         dashPane = new BorderPane();
         dashPane.getStyleClass().add("master-panel");
@@ -212,9 +185,6 @@ public class Main extends Application {
         scheduler.scheduleAtFixedRate(() -> Platform.runLater(this::autoRefresh), 5, 5, TimeUnit.SECONDS);
     }
 
-    // -------------------------------------------------------------------------
-    // Sidebar
-    // -------------------------------------------------------------------------
     private VBox buildSidebar() {
         VBox sidebar = new VBox(8);
         sidebar.getStyleClass().add("sidebar");
@@ -233,7 +203,6 @@ public class Main extends Application {
         registerTab("AGENDAMENTOS", "agendamentos", new String[]{"Cliente", "Serviço", "Horário"},
                 new String[]{"userId", "servico", "horario"}, btnAgendamentos);
 
-        // Abre o assistente de 3 etapas de cadastro de oficina
         btnOficina.setOnAction(e -> {
             currentTab = "ADICIONAR OFICINA";
             clearSelected(sidebar);
@@ -290,9 +259,6 @@ public class Main extends Application {
         });
     }
 
-    // -------------------------------------------------------------------------
-    // Tabela genérica
-    // -------------------------------------------------------------------------
     @SuppressWarnings("unchecked")
     private TableView<Map<String, Object>> buildTable(String[] cols, String[] keys) {
         TableView<Map<String, Object>> table = new TableView<>();
@@ -335,9 +301,6 @@ public class Main extends Application {
         });
     }
 
-    // -------------------------------------------------------------------------
-    // Painel de boas-vindas
-    // -------------------------------------------------------------------------
     private StackPane buildWelcomePane() {
         StackPane pane = new StackPane();
         pane.getStyleClass().add("master-panel");
@@ -347,19 +310,10 @@ public class Main extends Application {
         return pane;
     }
 
-    // =========================================================================
-    // WIZARD DE CADASTRO EM 3 ETAPAS
-    // =========================================================================
-    /**
-     * Etapa 1 — Processar pagamento (POST /oficinas/initiate-registration)
-     * Simula o pagamento do plano e recebe o registrationToken.
-     * Após sucesso, avança para a Etapa 2.
-     */
     private ScrollPane buildRegistrationWizard() {
         VBox content = new VBox(30);
         content.getStyleClass().add("dashboard-content");
 
-        // ── Cabeçalho ────────────────────────────────────────────────────────
         Label title = new Label("CADASTRAR NOVA OFICINA");
         title.getStyleClass().add("content-title");
 
@@ -372,7 +326,6 @@ public class Main extends Application {
         description.setStyle("-fx-text-fill: #9A9AAA; -fx-font-size:13px;");
         description.setWrapText(true);
 
-        // ── Seleção de plano ─────────────────────────────────────────────────
         VBox planCard = formCard("PLANO DE ASSINATURA");
         ToggleGroup planGroup = new ToggleGroup();
         String[][] plans = {
@@ -387,10 +340,8 @@ public class Main extends Application {
             VBox.setMargin(rb, new Insets(4, 0, 4, 0));
             planCard.getChildren().add(rb);
         }
-        // Seleciona o primeiro plano por padrão
         planGroup.getToggles().get(0).setSelected(true);
 
-        // ── Dados do cartão (simulação) ──────────────────────────────────────
         VBox payCard = formCard("DADOS DE PAGAMENTO");
         TextField txtCardName   = styledField("Nome no cartão");
         TextField txtCardNumber = styledField("Número do cartão (ex: 4111 1111 1111 1111)");
@@ -407,7 +358,6 @@ public class Main extends Application {
                 fieldLabel("VALIDADE / CVV"),   expiryRow
         );
 
-        // ── Card de resultado (token) ─────────────────────────────────────────
         VBox resultCard = formCard("TOKEN DE REGISTRO GERADO");
         resultCard.setVisible(false);
         resultCard.setManaged(false);
@@ -426,7 +376,6 @@ public class Main extends Application {
 
         resultCard.getChildren().addAll(fieldLabel("TOKEN"), tokenLabel, tokenMsg);
 
-        // ── Botões ────────────────────────────────────────────────────────────
         Button btnPay = new Button("CONFIRMAR PAGAMENTO");
         btnPay.getStyleClass().add("big-button-primary");
         btnPay.setPrefSize(300, 52);
@@ -442,7 +391,7 @@ public class Main extends Application {
         btnPay.setOnAction(e -> {
             btnPay.setText("PROCESSANDO..."); btnPay.setDisable(true);
 
-            postInitiateRegistration().thenAccept(token -> // Chamada corrigida
+            postInitiateRegistration().thenAccept(token ->
                     Platform.runLater(() -> {
                         btnPay.setText("CONFIRMAR PAGAMENTO"); btnPay.setDisable(false);
                         if (token != null) {
@@ -475,33 +424,25 @@ public class Main extends Application {
         return scroll;
     }
 
-    /**
-     * Etapa 2 — Completar registro (POST /oficinas/complete-registration)
-     * Formulário completo da oficina usando o token gerado na Etapa 1.
-     */
     private ScrollPane buildStep2Pane(String registrationToken) {
         VBox content = new VBox(30);
         content.getStyleClass().add("dashboard-content");
 
-        // ── Cabeçalho ────────────────────────────────────────────────────────
         Label title = new Label("CADASTRAR NOVA OFICINA");
         title.getStyleClass().add("content-title");
 
         Label stepLabel = new Label("ETAPA 2 DE 3  —  Dados da Oficina");
         stepLabel.setStyle("-fx-text-fill: #16BC4E; -fx-font-size:13px; -fx-font-weight:700;");
 
-        // ── Exibir token em uso ───────────────────────────────────────────────
         VBox tokenInfo = formCard("TOKEN ATIVO");
         Label tokenDisplay = new Label(registrationToken != null ? registrationToken : "—");
         tokenDisplay.setStyle("-fx-text-fill: #16BC4E; -fx-font-family: monospace; -fx-font-size:12px;");
         tokenDisplay.setWrapText(true);
         tokenInfo.getChildren().addAll(fieldLabel("REGISTRATION TOKEN"), tokenDisplay);
 
-        // ── Grid de formulário ────────────────────────────────────────────────
         HBox grid = new HBox(24);
         HBox.setHgrow(grid, Priority.ALWAYS);
 
-        // Coluna 1 — Identificação
         VBox card1 = formCard("IDENTIFICAÇÃO");
         TextField txtNome     = styledField("Nome da Oficina");
         TextField txtEmail    = styledField("E-mail");
@@ -514,7 +455,6 @@ public class Main extends Application {
                 fieldLabel("WEBSITE"), txtWebsite
         );
 
-        // Coluna 2 — Localização
         VBox card2 = formCard("LOCALIZAÇÃO");
         TextField txtEndereco = styledField("Endereço completo");
         TextField txtLat      = styledField("Latitude");
@@ -525,7 +465,6 @@ public class Main extends Application {
                 fieldLabel("LONGITUDE"), txtLon
         );
 
-        // Coluna 3 — Operação
         VBox card3 = formCard("OPERAÇÃO");
         TextField txtHorario       = styledField("Ex: Seg-Sex 08:00-18:00");
         TextField txtFormasPag     = styledField("Ex: Cartão, Dinheiro, Pix");
@@ -536,7 +475,6 @@ public class Main extends Application {
                 fieldLabel("ESPECIALIDADES"), txtEspecialidades
         );
 
-        // Coluna 4 — Serviços
         VBox card4 = formCard("SERVIÇOS");
         String[] services = {"Freios", "Suspensão", "Motor", "Óleo", "Revisão", "Elétrica"};
         List<CheckBox> checkBoxes = new ArrayList<>();
@@ -551,12 +489,10 @@ public class Main extends Application {
         for (javafx.scene.Node n : grid.getChildren())
             HBox.setHgrow(n, Priority.ALWAYS);
 
-        // ── Botão salvar ─────────────────────────────────────────────────────
         Button btnSave = new Button("CONCLUIR CADASTRO DA OFICINA");
         btnSave.getStyleClass().add("big-button-primary");
         btnSave.setPrefSize(380, 52);
 
-        // Referência mutável para capturar o oficinaId retornado
         final long[] resolvedOficinaId = {-1L};
 
         btnSave.setOnAction(e -> {
@@ -614,15 +550,10 @@ public class Main extends Application {
         return scroll;
     }
 
-    /**
-     * Etapa 3 — Registrar usuário da oficina (POST /oficina-users/register)
-     * Cria o login do dono da oficina com o ID da oficina ativa.
-     */
     private ScrollPane buildStep3Pane(long oficinaId) {
         VBox content = new VBox(30);
         content.getStyleClass().add("dashboard-content");
 
-        // ── Cabeçalho ────────────────────────────────────────────────────────
         Label title = new Label("CADASTRAR NOVA OFICINA");
         title.getStyleClass().add("content-title");
 
@@ -640,7 +571,6 @@ public class Main extends Application {
         description.setStyle("-fx-text-fill: #9A9AAA; -fx-font-size:13px;");
         description.setWrapText(true);
 
-        // ── Formulário ────────────────────────────────────────────────────────
         VBox card = formCard("CREDENCIAIS DO USUÁRIO");
         card.setMaxWidth(480);
 
@@ -658,7 +588,6 @@ public class Main extends Application {
                 fieldLabel(""),        idInfo
         );
 
-        // ── Botão registrar ──────────────────────────────────────────────────
         Button btnRegister = new Button("REGISTRAR USUÁRIO");
         btnRegister.getStyleClass().add("big-button-primary");
         btnRegister.setPrefSize(260, 52);
@@ -684,7 +613,6 @@ public class Main extends Application {
                             showAlert(Alert.AlertType.INFORMATION,
                                     "Usuário '" + txtUsername.getText() + "' registrado com sucesso!\n" +
                                             "Cadastro completo da oficina (ID: " + oficinaId + ") concluído.");
-                            // Volta para o dashboard principal
                             dashPane.setCenter(buildWelcomePane());
                         } else {
                             showAlert(Alert.AlertType.ERROR,
@@ -702,18 +630,9 @@ public class Main extends Application {
         return scroll;
     }
 
-    // =========================================================================
-    // Chamadas de API específicas do fluxo de cadastro
-    // =========================================================================
-
-    /**
-     * POST /oficinas/initiate-registration
-     * Inicia o registro da oficina e retorna o registrationToken, ou null em caso de falha.
-     * O endpoint não requer corpo na versão atual; em produção enviaria dados do cartão/plano.
-     */
-    private java.util.concurrent.CompletableFuture<String> postInitiateRegistration() { // Renomeado
+    private java.util.concurrent.CompletableFuture<String> postInitiateRegistration() {
         HttpRequest.Builder rb = HttpRequest.newBuilder()
-                .uri(URI.create(BASE_URL + "oficinas/initiate-registration")) // URI corrigida
+                .uri(URI.create(BASE_URL + "oficinas/initiate-registration"))
                 .header("Content-Type", "application/json");
         if (jwtToken != null) rb.header("Authorization", "Bearer " + jwtToken);
         HttpRequest request = rb.POST(HttpRequest.BodyPublishers.noBody()).build();
@@ -721,7 +640,6 @@ public class Main extends Application {
         return HTTP.sendAsync(request, HttpResponse.BodyHandlers.ofString())
                 .thenApply(res -> {
                     System.out.println("[initiate-registration] Status: " + res.statusCode() + " | " + res.body());
-                    // Aceita 200 ou 201 como sucesso
                     if (res.statusCode() == 200 || res.statusCode() == 201) {
                         try {
                             Map<String, Object> body = GSON.fromJson(res.body(),
@@ -739,10 +657,6 @@ public class Main extends Application {
                 });
     }
 
-    /**
-     * POST /oficinas/complete-registration
-     * Retorna o ID (Long) da oficina ativada, ou null em caso de falha.
-     */
     private java.util.concurrent.CompletableFuture<Long> postCompleteRegistration(Map<String, Object> data) {
         String json = GSON.toJson(data);
         HttpRequest.Builder rb = HttpRequest.newBuilder()
@@ -756,12 +670,11 @@ public class Main extends Application {
                     System.out.println("[complete-registration] Status: " + res.statusCode() + " | " + res.body());
                     if (res.statusCode() == 200) {
                         try {
-                            // Resposta: {"message": "Registro da oficina concluído com sucesso! ID da Oficina: 123"}
-                            Map<String, Object> body = GSON.fromJson(res.body(),
-                                    new com.google.gson.reflect.TypeToken<Map<String, Object>>(){}.getType());
-                            String message = (String) body.get("message");
-                            // Extrai o ID numérico da mensagem
-                            String[] parts = message.split(":");
+                            // A resposta é uma string simples, não um JSON.
+                            // Ex: "Registro da oficina concluído com sucesso! ID da Oficina: 123"
+                            String responseBody = res.body();
+                            // Extrai o ID numérico da string
+                            String[] parts = responseBody.split(":");
                             if (parts.length > 1) {
                                 String idStr = parts[parts.length - 1].trim();
                                 return Long.parseLong(idStr);
@@ -777,10 +690,6 @@ public class Main extends Application {
                 });
     }
 
-    /**
-     * POST /oficina-users/register
-     * Retorna true em caso de sucesso (200), false caso contrário.
-     */
     private java.util.concurrent.CompletableFuture<Boolean> postRegisterOficinaUser(Map<String, Object> data) {
         String json = GSON.toJson(data);
         HttpRequest.Builder rb = HttpRequest.newBuilder()
@@ -799,9 +708,6 @@ public class Main extends Application {
                 });
     }
 
-    // =========================================================================
-    // CONFIG / CADASTRO LEGADO (mantido para referência futura)
-    // =========================================================================
     private ScrollPane buildConfigPane(boolean isNew) {
         VBox content = new VBox(30);
         content.getStyleClass().add("dashboard-content");
@@ -889,9 +795,6 @@ public class Main extends Application {
         return scroll;
     }
 
-    // -------------------------------------------------------------------------
-    // Helpers de formulário
-    // -------------------------------------------------------------------------
     private VBox formCard(String title) {
         VBox card = new VBox(10);
         card.getStyleClass().add("form-card");
@@ -922,9 +825,6 @@ public class Main extends Application {
         alert.showAndWait();
     }
 
-    // =========================================================================
-    // Refresh de dados
-    // =========================================================================
     private void autoRefresh() {
         if (tabEndpoints.containsKey(currentTab)) refreshTab(currentTab);
     }
@@ -964,9 +864,6 @@ public class Main extends Application {
                 }).exceptionally(ex -> null);
     }
 
-    // =========================================================================
-    // API HTTP genérica
-    // =========================================================================
     private java.util.concurrent.CompletableFuture<Boolean> sendToAPI(
             String method, String endpoint, Object data) {
 
@@ -1012,17 +909,11 @@ public class Main extends Application {
                 }).exceptionally(ex -> null);
     }
 
-    // =========================================================================
-    // Encerramento
-    // =========================================================================
     @Override
     public void stop() {
         if (scheduler != null) scheduler.shutdownNow();
     }
 
-    // =========================================================================
-    // main
-    // =========================================================================
     public static void main(String[] args) {
         launch(args);
     }
