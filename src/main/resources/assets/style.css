@@ -158,3 +158,16 @@
     -fx-text-fill: #F5F6FC;             /* Ice White no label do checkbox */
     -fx-font-size: 14px;
 }
+
+css.big-button-secondary {
+    -fx-background-color: transparent;
+    -fx-border-color: #16BC4E;
+    -fx-border-width: 1.5px;
+    -fx-border-radius: 6px;
+    -fx-text-fill: #16BC4E;
+    -fx-font-weight: 700;
+    -fx-cursor: hand;
+}
+.big-button-secondary:hover {
+    -fx-background-color: #16BC4E22;
+}

@@ -20,26 +20,40 @@ import java.util.*;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.CompletableFuture;
 
 public class Main extends Application {
 
+    // -------------------------------------------------------------------------
+    // Constantes
+    // -------------------------------------------------------------------------
     private static final String BASE_URL = "https://api-java-production-5e77.up.railway.app/";
     private static final HttpClient HTTP  = HttpClient.newBuilder()
             .connectTimeout(java.time.Duration.ofSeconds(15)).build();
     private static final Gson GSON = new Gson();
 
-    private String workshopId      = "550e8400-e29b-41d4-a716-446655440000";
+    // -------------------------------------------------------------------------
+    // Estado
+    // -------------------------------------------------------------------------
+    private String workshopId      = null; // null = oficina não cadastrada ainda
     private String currentTab      = "VEÍCULOS";
-    private String jwtToken        = null;
     private final Map<String, TableView<Map<String, Object>>> tabTables    = new HashMap<>();
     private final Map<String, String>                         tabEndpoints = new HashMap<>();
     private final Map<String, String[]>                       tabKeys      = new HashMap<>();
 
+    // Lat/Lon detectadas em segundo plano — nunca exibidas ao usuário
+    private double detectedLat = 0.0;
+    private double detectedLon = 0.0;
+
     private ScheduledExecutorService scheduler;
 
-    private StackPane  root;
+    // Layout raiz
+    private StackPane root;
     private BorderPane dashPane;
 
+    // -------------------------------------------------------------------------
+    // Inicialização JavaFX
+    // -------------------------------------------------------------------------
     @Override
     public void start(Stage stage) {
         root = new StackPane();
@@ -58,116 +72,275 @@ public class Main extends Application {
         stage.setScene(scene);
         stage.show();
 
-        showLaunchScreen();
+        // Pré-carrega localização em segundo plano ao iniciar o app
+        prefetchLocation();
+
+        // ============================================================
+        // MUDANÇA 1: Inicia direto na tela de LOGIN, não no dashboard
+        // ============================================================
+        showLoginScreen();
     }
 
-    private void showLaunchScreen() {
-        VBox card = new VBox(20);
-        card.setAlignment(Pos.CENTER);
-        card.setMaxWidth(420);
-
-        Label logo = new Label("MOTOR PRO");
-        logo.getStyleClass().add("content-title");
-        VBox.setMargin(logo, new Insets(0, 0, 16, 0));
-
-        TextField    txtUser = styledField("Usuário");
-        PasswordField txtPass = new PasswordField();
-        txtPass.setPromptText("Senha");
-        txtPass.getStyleClass().add("text-field-styled");
-
-        Label lblError = new Label();
-        lblError.setStyle("-fx-text-fill: #FF4C4C; -fx-font-size:12px;");
-        lblError.setVisible(false);
-
-        Button btnLogin = new Button("ENTRAR");
-        btnLogin.getStyleClass().add("big-button-primary");
-        btnLogin.setMaxWidth(Double.MAX_VALUE);
-        btnLogin.setPrefHeight(52);
-
-        Button btnSkip = new Button("Entrar sem login  →");
-        btnSkip.setStyle("-fx-background-color: transparent; -fx-text-fill: #9A9AAA; " +
-                "-fx-font-size:12px; -fx-cursor: hand;");
-        btnSkip.setOnAction(e -> showDashboard());
-
-        Runnable doLogin = () -> {
-            String user = txtUser.getText().trim();
-            String pass = txtPass.getText();
-            if (user.isBlank() || pass.isBlank()) {
-                lblError.setText("Preencha usuário e senha.");
-                lblError.setVisible(true);
-                return;
-            }
-            btnLogin.setText("ENTRANDO..."); btnLogin.setDisable(true);
-            lblError.setVisible(false);
-
-            postLogin(user, pass).thenAccept(token ->
-                    Platform.runLater(() -> {
-                        btnLogin.setText("ENTRAR"); btnLogin.setDisable(false);
-                        if (token != null) {
-                            jwtToken = token;
-                            showDashboard();
-                        } else {
-                            lblError.setText("Usuário ou senha incorretos.");
-                            lblError.setVisible(true);
-                        }
-                    })
-            );
-        };
-
-        btnLogin.setOnAction(e -> doLogin.run());
-        txtUser.setOnAction(e -> doLogin.run());
-        txtPass.setOnAction(e -> doLogin.run());
-
-        card.getChildren().addAll(logo,
-                fieldLabel("USUÁRIO"), txtUser,
-                fieldLabel("SENHA"),   txtPass,
-                lblError, btnLogin, btnSkip);
-
-        StackPane launch = new StackPane(card);
-        launch.getStyleClass().add("master-panel");
-        root.getChildren().setAll(launch);
-    }
-
-    private java.util.concurrent.CompletableFuture<String> postLogin(String username, String password) {
-        return tryLoginEndpoint("oficina-users/login", username, password)
-                .thenCompose(token -> {
-                    if (token != null) return java.util.concurrent.CompletableFuture.completedFuture(token);
-                    return tryLoginEndpoint("auth/login", username, password);
-                });
-    }
-
-    private java.util.concurrent.CompletableFuture<String> tryLoginEndpoint(
-            String endpoint, String username, String password) {
-
-        Map<String, String> body = new LinkedHashMap<>();
-        body.put("username", username);
-        body.put("password", password);
-        String json = GSON.toJson(body);
-
-        HttpRequest req = HttpRequest.newBuilder()
-                .uri(URI.create(BASE_URL + endpoint))
-                .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(json))
-                .build();
-
-        return HTTP.sendAsync(req, HttpResponse.BodyHandlers.ofString())
-                .thenApply(res -> {
-                    System.out.println("[login:" + endpoint + "] Status: "
-                            + res.statusCode() + " | " + res.body());
-                    if (res.statusCode() == 200 || res.statusCode() == 201) {
+    // =========================================================================
+    // PREFETCH DE LOCALIZAÇÃO (em segundo plano, sem interação do usuário)
+    // =========================================================================
+    private void prefetchLocation() {
+        HTTP.sendAsync(
+                        HttpRequest.newBuilder().uri(URI.create("http://ip-api.com/json/")).build(),
+                        HttpResponse.BodyHandlers.ofString())
+                .thenAccept(res -> {
+                    Map<String, Object> d = GSON.fromJson(res.body(),
+                            new com.google.gson.reflect.TypeToken<
+                                    Map<String, Object>>(){}.getType());
+                    if (d != null && "success".equals(d.get("status"))) {
                         try {
-                            Map<String, Object> r = GSON.fromJson(res.body(),
-                                    new com.google.gson.reflect.TypeToken<
-                                            Map<String, Object>>(){}.getType());
-                            for (String key : new String[]{"token","accessToken","jwt","access_token"}) {
-                                if (r.containsKey(key)) return (String) r.get(key);
-                            }
+                            detectedLat = Double.parseDouble(String.valueOf(d.get("lat")));
+                            detectedLon = Double.parseDouble(String.valueOf(d.get("lon")));
                         } catch (Exception ignored) {}
                     }
-                    return null;
                 }).exceptionally(ex -> null);
     }
 
+    // =========================================================================
+    // MUDANÇA 1 — TELA DE LOGIN
+    // Dois caminhos: "Entrar no Dashboard" (tem oficina) ou "Cadastrar Oficina"
+    // =========================================================================
+    private void showLoginScreen() {
+        VBox card = new VBox(28);
+        card.setAlignment(Pos.CENTER);
+        card.setMaxWidth(480);
+
+        Label logo = new Label("MOTOR PRO");
+        logo.getStyleClass().add("content-title");
+
+        Label subtitle = new Label("Sistema de Gerenciamento de Oficinas");
+        subtitle.setStyle("-fx-text-fill: #9A9AAA; -fx-font-size: 14px;");
+
+        // Separador visual
+        Separator sep = new Separator();
+        sep.setMaxWidth(280);
+
+        // — Botão principal: acessar dashboard (já tem oficina) —
+        Button btnDashboard = new Button("ENTRAR NO DASHBOARD");
+        btnDashboard.getStyleClass().add("big-button-primary");
+        btnDashboard.setPrefSize(420, 64);
+        btnDashboard.setOnAction(e -> showDashboard());
+
+        // — Botão secundário: cadastrar nova oficina —
+        Label lblOuSe = new Label("Não tem uma oficina cadastrada?");
+        lblOuSe.setStyle("-fx-text-fill: #9A9AAA; -fx-font-size: 12px;");
+
+        Button btnCadastrar = new Button("CADASTRAR OFICINA");
+        btnCadastrar.getStyleClass().add("big-button-secondary"); // estilo diferente no CSS
+        btnCadastrar.setPrefSize(420, 52);
+        // ============================================================
+        // MUDANÇA 2: Vai para tela de cadastro/pagamento STANDALONE
+        // (fora do dashboard)
+        // ============================================================
+        btnCadastrar.setOnAction(e -> showCadastroStandalone());
+
+        card.getChildren().addAll(logo, subtitle, sep, btnDashboard, lblOuSe, btnCadastrar);
+
+        StackPane login = new StackPane(card);
+        login.getStyleClass().add("master-panel");
+
+        root.getChildren().setAll(login);
+    }
+
+    // =========================================================================
+    // MUDANÇA 2 — TELA DE CADASTRO STANDALONE (fora do dashboard)
+    // Inclui formulário + seção de pagamento
+    // =========================================================================
+    private void showCadastroStandalone() {
+        // ---- Cabeçalho com botão Voltar ----
+        HBox topBar = new HBox(16);
+        topBar.setAlignment(Pos.CENTER_LEFT);
+        topBar.setPadding(new Insets(20, 32, 0, 32));
+
+        Button btnVoltar = new Button("← VOLTAR");
+        btnVoltar.getStyleClass().add("sidebar-button");
+        btnVoltar.setOnAction(e -> showLoginScreen());
+
+        Label topTitle = new Label("CADASTRO DE OFICINA");
+        topTitle.setStyle("-fx-font-size: 20px; -fx-font-weight: 700; -fx-text-fill: #16BC4E;");
+
+        topBar.getChildren().addAll(btnVoltar, topTitle);
+
+        // ---- Conteúdo rolável ----
+        VBox content = new VBox(32);
+        content.getStyleClass().add("dashboard-content");
+        content.setPadding(new Insets(24, 32, 48, 32));
+
+        // — SEÇÃO 1: Dados da Oficina —
+        Label secDados = sectionTitle("1. DADOS DA EMPRESA");
+
+        VBox cardDados = formCard("");
+        cardDados.getChildren().remove(0); // remove label vazio criado por formCard
+
+        // MUDANÇA 3: Lat/Lon NÃO aparecem no formulário — preenchidos em 2º plano
+        TextField txtNome  = styledField("Ex: Auto Center Araújo");
+        TextField txtLocal = styledField("Ex: Rua das Flores, 123, Fortaleza - CE");
+        TextField txtTel   = styledField("Ex: (85) 99999-9999");
+        TextField txtEmail = styledField("Ex: contato@autocenter.com");
+        TextField txtHorarioFuncionamento = styledField("Ex: Seg-Sex 08:00-18:00");
+        TextField txtWebsite = styledField("Ex: www.autocenter.com");
+        TextField txtFormasPagamento = styledField("Ex: Cartão, Dinheiro, Pix");
+        TextField txtEspecialidades = styledField("Ex: Alinhamento, Balanceamento, Troca de Óleo");
+
+        cardDados.getChildren().addAll(
+                fieldLabel("NOME DA OFICINA"), txtNome,
+                fieldLabel("ENDEREÇO"),        txtLocal,
+                fieldLabel("TELEFONE"),        txtTel,
+                fieldLabel("EMAIL"),           txtEmail,
+                fieldLabel("HORÁRIO DE FUNCIONAMENTO"), txtHorarioFuncionamento,
+                fieldLabel("WEBSITE (OPCIONAL)"), txtWebsite,
+                fieldLabel("FORMAS DE PAGAMENTO"), txtFormasPagamento,
+                fieldLabel("ESPECIALIDADES"), txtEspecialidades);
+
+        // — SEÇÃO 2: Serviços —
+        Label secServicos = sectionTitle("2. SERVIÇOS OFERECIDOS");
+
+        VBox cardServicos = formCard("");
+        cardServicos.getChildren().remove(0);
+        String[] services = {"Freios", "Suspensão", "Motor", "Óleo", "Revisão", "Elétrica"};
+        List<CheckBox> checkBoxes = new ArrayList<>();
+        GridPane gridServs = new GridPane();
+        gridServs.setHgap(24); gridServs.setVgap(12);
+        for (int i = 0; i < services.length; i++) {
+            CheckBox cb = new CheckBox(services[i]);
+            cb.getStyleClass().add("check-box");
+            checkBoxes.add(cb);
+            gridServs.add(cb, i % 3, i / 3);
+        }
+        cardServicos.getChildren().add(gridServs);
+
+        // — SEÇÃO 3: Pagamento —
+        Label secPag = sectionTitle("3. PLANO & PAGAMENTO");
+
+        VBox cardPag = formCard("");
+        cardPag.getChildren().remove(0);
+
+        // Seleção de plano
+        Label lblPlano = fieldLabel("SELECIONE SEU PLANO");
+        ToggleGroup grupoPlano = new ToggleGroup();
+
+        RadioButton planoBasico    = planoRadio("BÁSICO",       "R$ 49,90/mês — 1 usuário, 50 agendamentos/mês",    grupoPlano);
+        RadioButton planoProfissional = planoRadio("PROFISSIONAL","R$ 99,90/mês — 5 usuários, agendamentos ilimitados", grupoPlano);
+        RadioButton planoEnterprise   = planoRadio("ENTERPRISE",  "R$ 199,90/mês — ilimitado + suporte prioritário",    grupoPlano);
+        planoBasico.setSelected(true);
+
+        // Dados do cartão
+        Label lblCartao = fieldLabel("DADOS DO CARTÃO");
+        TextField txtTitular  = styledField("Nome impresso no cartão");
+        TextField txtNumero   = styledField("0000 0000 0000 0000");
+        HBox rowCartao = new HBox(16);
+        TextField txtValidade = styledField("MM/AA");
+        TextField txtCvv      = styledField("CVV");
+        rowCartao.getChildren().addAll(txtValidade, txtCvv);
+        HBox.setHgrow(txtValidade, Priority.ALWAYS);
+        HBox.setHgrow(txtCvv,      Priority.ALWAYS);
+
+        Label lblSeguro = new Label("🔒  Pagamento seguro via SSL. Seus dados não são armazenados.");
+        lblSeguro.setStyle("-fx-text-fill: #9A9AAA; -fx-font-size: 11px;");
+
+        cardPag.getChildren().addAll(
+                lblPlano,
+                planoBasico, planoProfissional, planoEnterprise,
+                fieldLabel("TITULAR DO CARTÃO"), txtTitular,
+                lblCartao, txtNumero,
+                rowCartao,
+                lblSeguro);
+
+        // — Botão Finalizar —
+        Button btnFinalizar = new Button("CADASTRAR E ATIVAR PLANO");
+        btnFinalizar.getStyleClass().add("big-button-primary");
+        btnFinalizar.setPrefSize(360, 60);
+        btnFinalizar.setMaxWidth(Double.MAX_VALUE);
+
+        btnFinalizar.setOnAction(e -> {
+            btnFinalizar.setText("ENVIANDO..."); btnFinalizar.setDisable(true);
+
+            List<String> servs = new ArrayList<>();
+            for (CheckBox cb : checkBoxes) if (cb.isSelected()) servs.add(cb.getText());
+
+            RadioButton planoSel = (RadioButton) grupoPlano.getSelectedToggle();
+            String planoNome = planoSel != null ? planoSel.getText() : "BÁSICO";
+
+            // Step 1: Initiate Registration
+            Map<String, Object> initiateData = new HashMap<>();
+            initiateData.put("nome",      txtNome.getText());
+            initiateData.put("endereco",  txtLocal.getText());
+            initiateData.put("telefone",  txtTel.getText());
+            initiateData.put("email",     txtEmail.getText());
+            initiateData.put("latitude",  detectedLat);
+            initiateData.put("longitude", detectedLon);
+
+            sendToAPI("POST", "api/oficinas/initiate-registration", initiateData)
+                .thenCompose(initiateRes -> {
+                    if (initiateRes.get("success") != null && (Boolean) initiateRes.get("success")) {
+                        String registrationToken = (String) initiateRes.get("registrationToken");
+                        if (registrationToken == null || registrationToken.isEmpty()) {
+                            return CompletableFuture.completedFuture(Map.of("success", false, "message", "Token de registro não recebido."));
+                        }
+
+                        // Step 2: Complete Registration
+                        Map<String, Object> completeData = new HashMap<>();
+                        completeData.put("registrationToken", registrationToken);
+                        completeData.put("horarioFuncionamento", txtHorarioFuncionamento.getText());
+                        completeData.put("website", txtWebsite.getText());
+                        completeData.put("formasPagamento", txtFormasPagamento.getText());
+                        completeData.put("especialidades", txtEspecialidades.getText());
+                        completeData.put("servicos",  String.join(", ", servs));
+                        completeData.put("plano",     planoNome);
+
+                        return sendToAPI("POST", "api/oficinas/complete-registration", completeData);
+                    } else {
+                        return CompletableFuture.completedFuture(initiateRes); // Pass along the error from initiate
+                    }
+                })
+                .thenAccept(finalRes -> Platform.runLater(() -> {
+                    btnFinalizar.setText("CADASTRAR E ATIVAR PLANO");
+                    btnFinalizar.setDisable(false);
+                    Alert alert = new Alert(Alert.AlertType.ERROR);
+                    alert.setHeaderText(null);
+
+                    if (finalRes.get("success") != null && (Boolean) finalRes.get("success")) {
+                        alert.setAlertType(Alert.AlertType.INFORMATION);
+                        alert.setContentText("✅ Oficina cadastrada com sucesso! Bem-vindo ao Motor Pro.");
+                        alert.showAndWait();
+                        // Assuming complete-registration returns the workshop ID
+                        if (finalRes.get("id") != null) {
+                            workshopId = finalRes.get("id").toString();
+                        }
+                        showDashboard();
+                    } else {
+                        String errorMessage = (String) finalRes.getOrDefault("message", "Erro desconhecido ao cadastrar. Verifique os dados e tente novamente.");
+                        alert.setContentText("❌ " + errorMessage);
+                        alert.showAndWait();
+                    }
+                }));
+        });
+
+        content.getChildren().addAll(
+                secDados, cardDados,
+                secServicos, cardServicos,
+                secPag, cardPag,
+                btnFinalizar);
+
+        ScrollPane scroll = new ScrollPane(content);
+        scroll.setFitToWidth(true);
+        scroll.setStyle("-fx-background-color: transparent; -fx-background: #0B0B0B;");
+
+        VBox fullScreen = new VBox(topBar, scroll);
+        fullScreen.getStyleClass().add("master-panel");
+        VBox.setVgrow(scroll, Priority.ALWAYS);
+
+        root.getChildren().setAll(fullScreen);
+    }
+
+    // =========================================================================
+    // DASHBOARD (só acessível após login ou cadastro concluído)
+    // =========================================================================
     private void showDashboard() {
         dashPane = new BorderPane();
         dashPane.getStyleClass().add("master-panel");
@@ -177,14 +350,19 @@ public class Main extends Application {
 
         root.getChildren().setAll(dashPane);
 
+        // Auto-refresh a cada 5 s
         scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "auto-refresh");
             t.setDaemon(true);
             return t;
         });
-        scheduler.scheduleAtFixedRate(() -> Platform.runLater(this::autoRefresh), 5, 5, TimeUnit.SECONDS);
+        scheduler.scheduleAtFixedRate(
+                () -> Platform.runLater(this::autoRefresh), 5, 5, TimeUnit.SECONDS);
     }
 
+    // -------------------------------------------------------------------------
+    // Sidebar do dashboard
+    // -------------------------------------------------------------------------
     private VBox buildSidebar() {
         VBox sidebar = new VBox(8);
         sidebar.getStyleClass().add("sidebar");
@@ -196,22 +374,21 @@ public class Main extends Application {
 
         Button btnClientes     = sidebarBtn("👥", "CLIENTES");
         Button btnAgendamentos = sidebarBtn("📅", "AGENDAMENTOS");
-        Button btnOficina      = sidebarBtn("➕", "ADICIONAR OFICINA");
+        Button btnSair         = sidebarBtn("🚪", "SAIR");
 
         registerTab("CLIENTES",     "api/users",     new String[]{"Nome", "Email", "ID"},
                 new String[]{"nome", "email", "id"}, btnClientes);
         registerTab("AGENDAMENTOS", "agendamentos", new String[]{"Cliente", "Serviço", "Horário"},
                 new String[]{"userId", "servico", "horario"}, btnAgendamentos);
 
-        btnOficina.setOnAction(e -> {
-            currentTab = "ADICIONAR OFICINA";
-            clearSelected(sidebar);
-            btnOficina.getStyleClass().add("sidebar-button-selected");
-            dashPane.setCenter(buildRegistrationWizard());
+        // Botão Sair — volta para tela de login
+        btnSair.setOnAction(e -> {
+            if (scheduler != null) scheduler.shutdownNow();
+            showLoginScreen();
         });
 
         sidebar.getChildren().addAll(brand, btnClientes, btnAgendamentos,
-                new Separator(), btnOficina);
+                new Separator(), btnSair);
 
         Platform.runLater(() -> btnClientes.fire());
 
@@ -259,6 +436,9 @@ public class Main extends Application {
         });
     }
 
+    // -------------------------------------------------------------------------
+    // Tabela genérica
+    // -------------------------------------------------------------------------
     @SuppressWarnings("unchecked")
     private TableView<Map<String, Object>> buildTable(String[] cols, String[] keys) {
         TableView<Map<String, Object>> table = new TableView<>();
@@ -302,7 +482,7 @@ public class Main extends Application {
     }
 
     private StackPane buildWelcomePane() {
-        StackPane pane = new StackPane();
+StackPane pane = new StackPane();
         pane.getStyleClass().add("master-panel");
         Label lbl = new Label("Selecione uma opção no menu.");
         lbl.setStyle("-fx-text-fill: #9A9AAA; -fx-font-size:18px;");
@@ -310,489 +490,14 @@ public class Main extends Application {
         return pane;
     }
 
-    private ScrollPane buildRegistrationWizard() {
-        VBox content = new VBox(30);
-        content.getStyleClass().add("dashboard-content");
-
-        Label title = new Label("CADASTRAR NOVA OFICINA");
-        title.getStyleClass().add("content-title");
-
-        Label stepLabel = new Label("ETAPA 1 DE 3  —  Pagamento do Plano");
-        stepLabel.setStyle("-fx-text-fill: #16BC4E; -fx-font-size:13px; -fx-font-weight:700;");
-
-        Label description = new Label(
-                "Selecione um plano e confirme o pagamento para gerar o token de registro da oficina.\n" +
-                        "O token será usado na próxima etapa para completar o cadastro.");
-        description.setStyle("-fx-text-fill: #9A9AAA; -fx-font-size:13px;");
-        description.setWrapText(true);
-
-        VBox planCard = formCard("PLANO DE ASSINATURA");
-        ToggleGroup planGroup = new ToggleGroup();
-        String[][] plans = {
-                {"Básico",    "R$ 99/mês  — até 2 usuários, relatórios básicos"},
-                {"Profissional", "R$ 199/mês — até 10 usuários, relatórios avançados"},
-                {"Empresarial",  "R$ 399/mês — usuários ilimitados, suporte prioritário"}
-        };
-        for (String[] plan : plans) {
-            RadioButton rb = new RadioButton(plan[0] + "   |   " + plan[1]);
-            rb.setToggleGroup(planGroup);
-            rb.setStyle("-fx-text-fill: #E0E0E0; -fx-font-size:13px;");
-            VBox.setMargin(rb, new Insets(4, 0, 4, 0));
-            planCard.getChildren().add(rb);
-        }
-        planGroup.getToggles().get(0).setSelected(true);
-
-        VBox payCard = formCard("DADOS DE PAGAMENTO");
-        TextField txtCardName   = styledField("Nome no cartão");
-        TextField txtCardNumber = styledField("Número do cartão (ex: 4111 1111 1111 1111)");
-        HBox expiryRow = new HBox(12);
-        TextField txtExpiry = styledField("Validade (MM/AA)");
-        TextField txtCvv    = styledField("CVV");
-        txtExpiry.setPrefWidth(160);
-        txtCvv.setPrefWidth(100);
-        expiryRow.getChildren().addAll(txtExpiry, txtCvv);
-
-        payCard.getChildren().addAll(
-                fieldLabel("NOME NO CARTÃO"),   txtCardName,
-                fieldLabel("NÚMERO DO CARTÃO"), txtCardNumber,
-                fieldLabel("VALIDADE / CVV"),   expiryRow
-        );
-
-        VBox resultCard = formCard("TOKEN DE REGISTRO GERADO");
-        resultCard.setVisible(false);
-        resultCard.setManaged(false);
-        resultCard.setStyle("-fx-border-color: #16BC4E; -fx-border-width: 1; -fx-border-radius: 6;");
-
-        Label tokenLabel = new Label("—");
-        tokenLabel.setStyle(
-                "-fx-text-fill: #16BC4E; -fx-font-family: monospace; " +
-                        "-fx-font-size: 15px; -fx-font-weight:700;");
-        tokenLabel.setWrapText(true);
-
-        Label tokenMsg = new Label(
-                "✅  Pagamento confirmado! Guarde este token — ele é necessário para completar o cadastro da oficina.");
-        tokenMsg.setStyle("-fx-text-fill: #9A9AAA; -fx-font-size:12px;");
-        tokenMsg.setWrapText(true);
-
-        resultCard.getChildren().addAll(fieldLabel("TOKEN"), tokenLabel, tokenMsg);
-
-        Button btnPay = new Button("CONFIRMAR PAGAMENTO");
-        btnPay.getStyleClass().add("big-button-primary");
-        btnPay.setPrefSize(300, 52);
-
-        Button btnNext = new Button("PRÓXIMA ETAPA →");
-        btnNext.getStyleClass().add("big-button-primary");
-        btnNext.setPrefSize(220, 52);
-        btnNext.setVisible(false);
-        btnNext.setManaged(false);
-
-        final String[] generatedToken = {null};
-
-        btnPay.setOnAction(e -> {
-            btnPay.setText("PROCESSANDO..."); btnPay.setDisable(true);
-
-            postInitiateRegistration().thenAccept(token ->
-                    Platform.runLater(() -> {
-                        btnPay.setText("CONFIRMAR PAGAMENTO"); btnPay.setDisable(false);
-                        if (token != null) {
-                            generatedToken[0] = token;
-                            tokenLabel.setText(token);
-                            resultCard.setVisible(true);
-                            resultCard.setManaged(true);
-                            btnNext.setVisible(true);
-                            btnNext.setManaged(true);
-                            btnPay.setVisible(false);
-                            btnPay.setManaged(false);
-                        } else {
-                            showAlert(Alert.AlertType.ERROR,
-                                    "Falha ao processar pagamento. Verifique os dados e a conexão com a API.");
-                        }
-                    })
-            );
-        });
-
-        btnNext.setOnAction(e ->
-                dashPane.setCenter(buildStep2Pane(generatedToken[0]))
-        );
-
-        content.getChildren().addAll(
-                title, stepLabel, description, planCard, payCard, btnPay, resultCard, btnNext);
-
-        ScrollPane scroll = new ScrollPane(content);
-        scroll.setFitToWidth(true);
-        scroll.setStyle("-fx-background-color: transparent; -fx-background: #0B0B0B;");
-        return scroll;
-    }
-
-    private ScrollPane buildStep2Pane(String registrationToken) {
-        VBox content = new VBox(30);
-        content.getStyleClass().add("dashboard-content");
-
-        Label title = new Label("CADASTRAR NOVA OFICINA");
-        title.getStyleClass().add("content-title");
-
-        Label stepLabel = new Label("ETAPA 2 DE 3  —  Dados da Oficina");
-        stepLabel.setStyle("-fx-text-fill: #16BC4E; -fx-font-size:13px; -fx-font-weight:700;");
-
-        VBox tokenInfo = formCard("TOKEN ATIVO");
-        Label tokenDisplay = new Label(registrationToken != null ? registrationToken : "—");
-        tokenDisplay.setStyle("-fx-text-fill: #16BC4E; -fx-font-family: monospace; -fx-font-size:12px;");
-        tokenDisplay.setWrapText(true);
-        tokenInfo.getChildren().addAll(fieldLabel("REGISTRATION TOKEN"), tokenDisplay);
-
-        HBox grid = new HBox(24);
-        HBox.setHgrow(grid, Priority.ALWAYS);
-
-        VBox card1 = formCard("IDENTIFICAÇÃO");
-        TextField txtNome     = styledField("Nome da Oficina");
-        TextField txtEmail    = styledField("E-mail");
-        TextField txtTel      = styledField("Telefone");
-        TextField txtWebsite  = styledField("Website (opcional)");
-        card1.getChildren().addAll(
-                fieldLabel("NOME"), txtNome,
-                fieldLabel("E-MAIL"), txtEmail,
-                fieldLabel("TELEFONE"), txtTel,
-                fieldLabel("WEBSITE"), txtWebsite
-        );
-
-        VBox card2 = formCard("LOCALIZAÇÃO");
-        TextField txtEndereco = styledField("Endereço completo");
-        TextField txtLat      = styledField("Latitude");
-        TextField txtLon      = styledField("Longitude");
-        card2.getChildren().addAll(
-                fieldLabel("ENDEREÇO"), txtEndereco,
-                fieldLabel("LATITUDE"), txtLat,
-                fieldLabel("LONGITUDE"), txtLon
-        );
-
-        VBox card3 = formCard("OPERAÇÃO");
-        TextField txtHorario       = styledField("Ex: Seg-Sex 08:00-18:00");
-        TextField txtFormasPag     = styledField("Ex: Cartão, Dinheiro, Pix");
-        TextField txtEspecialidades = styledField("Ex: Mecânica Geral, Elétrica");
-        card3.getChildren().addAll(
-                fieldLabel("HORÁRIO DE FUNCIONAMENTO"), txtHorario,
-                fieldLabel("FORMAS DE PAGAMENTO"), txtFormasPag,
-                fieldLabel("ESPECIALIDADES"), txtEspecialidades
-        );
-
-        VBox card4 = formCard("SERVIÇOS");
-        String[] services = {"Freios", "Suspensão", "Motor", "Óleo", "Revisão", "Elétrica"};
-        List<CheckBox> checkBoxes = new ArrayList<>();
-        for (String s : services) {
-            CheckBox cb = new CheckBox(s);
-            cb.getStyleClass().add("check-box");
-            checkBoxes.add(cb);
-            card4.getChildren().add(cb);
-        }
-
-        grid.getChildren().addAll(card1, card2, card3, card4);
-        for (javafx.scene.Node n : grid.getChildren())
-            HBox.setHgrow(n, Priority.ALWAYS);
-
-        Button btnSave = new Button("CONCLUIR CADASTRO DA OFICINA");
-        btnSave.getStyleClass().add("big-button-primary");
-        btnSave.setPrefSize(380, 52);
-
-        final long[] resolvedOficinaId = {-1L};
-
-        btnSave.setOnAction(e -> {
-            if (txtNome.getText().isBlank() || txtEmail.getText().isBlank()
-                    || txtTel.getText().isBlank() || txtEndereco.getText().isBlank()) {
-                showAlert(Alert.AlertType.WARNING, "Preencha ao menos: Nome, E-mail, Telefone e Endereço.");
-                return;
-            }
-
-            btnSave.setText("ENVIANDO..."); btnSave.setDisable(true);
-
-            List<String> servs = new ArrayList<>();
-            for (CheckBox cb : checkBoxes) if (cb.isSelected()) servs.add(cb.getText());
-
-            Map<String, Object> data = new LinkedHashMap<>();
-            data.put("registrationToken", registrationToken);
-            data.put("nome",              txtNome.getText());
-            data.put("servicos",          String.join(", ", servs));
-            data.put("endereco",          txtEndereco.getText());
-            try {
-                data.put("latitude",  Double.parseDouble(txtLat.getText()));
-                data.put("longitude", Double.parseDouble(txtLon.getText()));
-            } catch (Exception ex) {
-                data.put("latitude",  0.0);
-                data.put("longitude", 0.0);
-            }
-            data.put("telefone",          txtTel.getText());
-            data.put("email",             txtEmail.getText());
-            data.put("horarioFuncionamento", txtHorario.getText());
-            data.put("website",           txtWebsite.getText());
-            data.put("formasPagamento",   txtFormasPag.getText());
-            data.put("especialidades",    txtEspecialidades.getText());
-
-            postCompleteRegistration(data).thenAccept(oficinaId ->
-                    Platform.runLater(() -> {
-                        btnSave.setText("CONCLUIR CADASTRO DA OFICINA");
-                        btnSave.setDisable(false);
-                        if (oficinaId != null) {
-                            resolvedOficinaId[0] = oficinaId;
-                            dashPane.setCenter(buildStep3Pane(oficinaId));
-                        } else {
-                            showAlert(Alert.AlertType.ERROR, "Falha ao concluir cadastro. Token inválido ou oficina já registrada.");
-                        }
-                    })
-            );
-        });
-
-        autoDetectLocation(txtEndereco, txtLat, txtLon);
-
-        content.getChildren().addAll(title, stepLabel, tokenInfo, grid, btnSave);
-
-        ScrollPane scroll = new ScrollPane(content);
-        scroll.setFitToWidth(true);
-        scroll.setStyle("-fx-background-color: transparent; -fx-background: #0B0B0B;");
-        return scroll;
-    }
-
-    private ScrollPane buildStep3Pane(long oficinaId) {
-        VBox content = new VBox(30);
-        content.getStyleClass().add("dashboard-content");
-
-        Label title = new Label("CADASTRAR NOVA OFICINA");
-        title.getStyleClass().add("content-title");
-
-        Label stepLabel = new Label("ETAPA 3 DE 3  —  Criar Usuário da Oficina");
-        stepLabel.setStyle("-fx-text-fill: #16BC4E; -fx-font-size:13px; -fx-font-weight:700;");
-
-        Label successBanner = new Label("✅  Oficina registrada com sucesso! ID: " + oficinaId);
-        successBanner.setStyle(
-                "-fx-text-fill: #16BC4E; -fx-font-size:14px; -fx-font-weight:700; " +
-                        "-fx-background-color: #0d2b1a; -fx-padding: 12 20 12 20; -fx-background-radius: 8;");
-
-        Label description = new Label(
-                "Agora crie o usuário de acesso para este dono de oficina.\n" +
-                        "O ID da oficina (" + oficinaId + ") será vinculado automaticamente.");
-        description.setStyle("-fx-text-fill: #9A9AAA; -fx-font-size:13px;");
-        description.setWrapText(true);
-
-        VBox card = formCard("CREDENCIAIS DO USUÁRIO");
-        card.setMaxWidth(480);
-
-        TextField    txtUsername = styledField("Nome de usuário (login)");
-        PasswordField txtPassword = new PasswordField();
-        txtPassword.setPromptText("Senha segura");
-        txtPassword.getStyleClass().add("text-field-styled");
-
-        Label idInfo = new Label("ID DA OFICINA VINCULADA: " + oficinaId);
-        idInfo.setStyle("-fx-text-fill: #16BC4E; -fx-font-size:12px; -fx-font-family: monospace;");
-
-        card.getChildren().addAll(
-                fieldLabel("USUÁRIO"), txtUsername,
-                fieldLabel("SENHA"),   txtPassword,
-                fieldLabel(""),        idInfo
-        );
-
-        Button btnRegister = new Button("REGISTRAR USUÁRIO");
-        btnRegister.getStyleClass().add("big-button-primary");
-        btnRegister.setPrefSize(260, 52);
-
-        btnRegister.setOnAction(e -> {
-            if (txtUsername.getText().isBlank() || txtPassword.getText().isBlank()) {
-                showAlert(Alert.AlertType.WARNING, "Preencha usuário e senha.");
-                return;
-            }
-
-            btnRegister.setText("REGISTRANDO..."); btnRegister.setDisable(true);
-
-            Map<String, Object> data = new LinkedHashMap<>();
-            data.put("username",  txtUsername.getText());
-            data.put("password",  txtPassword.getText());
-            data.put("oficinaId", String.valueOf(oficinaId));
-
-            postRegisterOficinaUser(data).thenAccept(success ->
-                    Platform.runLater(() -> {
-                        btnRegister.setText("REGISTRAR USUÁRIO");
-                        btnRegister.setDisable(false);
-                        if (success) {
-                            showAlert(Alert.AlertType.INFORMATION,
-                                    "Usuário '" + txtUsername.getText() + "' registrado com sucesso!\n" +
-                                            "Cadastro completo da oficina (ID: " + oficinaId + ") concluído.");
-                            dashPane.setCenter(buildWelcomePane());
-                        } else {
-                            showAlert(Alert.AlertType.ERROR,
-                                    "Erro ao registrar usuário. Username já existe ou oficina não encontrada.");
-                        }
-                    })
-            );
-        });
-
-        content.getChildren().addAll(title, stepLabel, successBanner, description, card, btnRegister);
-
-        ScrollPane scroll = new ScrollPane(content);
-        scroll.setFitToWidth(true);
-        scroll.setStyle("-fx-background-color: transparent; -fx-background: #0B0B0B;");
-        return scroll;
-    }
-
-    private java.util.concurrent.CompletableFuture<String> postInitiateRegistration() {
-        HttpRequest.Builder rb = HttpRequest.newBuilder()
-                .uri(URI.create(BASE_URL + "oficinas/initiate-registration"))
-                .header("Content-Type", "application/json");
-        if (jwtToken != null) rb.header("Authorization", "Bearer " + jwtToken);
-        HttpRequest request = rb.POST(HttpRequest.BodyPublishers.noBody()).build();
-
-        return HTTP.sendAsync(request, HttpResponse.BodyHandlers.ofString())
-                .thenApply(res -> {
-                    System.out.println("[initiate-registration] Status: " + res.statusCode() + " | " + res.body());
-                    if (res.statusCode() == 200 || res.statusCode() == 201) {
-                        try {
-                            Map<String, Object> body = GSON.fromJson(res.body(),
-                                    new com.google.gson.reflect.TypeToken<Map<String, Object>>(){}.getType());
-                            return (String) body.get("registrationToken");
-                        } catch (Exception ex) {
-                            System.err.println("[initiate-registration] Parse error: " + ex.getMessage());
-                            return null;
-                        }
-                    }
-                    return null;
-                }).exceptionally(ex -> {
-                    System.err.println("[initiate-registration] Exception: " + ex.getMessage());
-                    return null;
-                });
-    }
-
-    private java.util.concurrent.CompletableFuture<Long> postCompleteRegistration(Map<String, Object> data) {
-        String json = GSON.toJson(data);
-        HttpRequest.Builder rb = HttpRequest.newBuilder()
-                .uri(URI.create(BASE_URL + "oficinas/complete-registration"))
-                .header("Content-Type", "application/json");
-        if (jwtToken != null) rb.header("Authorization", "Bearer " + jwtToken);
-        HttpRequest request = rb.POST(HttpRequest.BodyPublishers.ofString(json)).build();
-
-        return HTTP.sendAsync(request, HttpResponse.BodyHandlers.ofString())
-                .thenApply(res -> {
-                    System.out.println("[complete-registration] Status: " + res.statusCode() + " | " + res.body());
-                    if (res.statusCode() == 200) {
-                        try {
-                            // A resposta é uma string simples, não um JSON.
-                            // Ex: "Registro da oficina concluído com sucesso! ID da Oficina: 123"
-                            String responseBody = res.body();
-                            // Extrai o ID numérico da string
-                            String[] parts = responseBody.split(":");
-                            if (parts.length > 1) {
-                                String idStr = parts[parts.length - 1].trim();
-                                return Long.parseLong(idStr);
-                            }
-                        } catch (Exception ex) {
-                            System.err.println("[complete-registration] Parse error: " + ex.getMessage());
-                        }
-                    }
-                    return null;
-                }).exceptionally(ex -> {
-                    System.err.println("[complete-registration] Exception: " + ex.getMessage());
-                    return null;
-                });
-    }
-
-    private java.util.concurrent.CompletableFuture<Boolean> postRegisterOficinaUser(Map<String, Object> data) {
-        String json = GSON.toJson(data);
-        HttpRequest.Builder rb = HttpRequest.newBuilder()
-                .uri(URI.create(BASE_URL + "oficina-users/register"))
-                .header("Content-Type", "application/json");
-        if (jwtToken != null) rb.header("Authorization", "Bearer " + jwtToken);
-        HttpRequest request = rb.POST(HttpRequest.BodyPublishers.ofString(json)).build();
-
-        return HTTP.sendAsync(request, HttpResponse.BodyHandlers.ofString())
-                .thenApply(res -> {
-                    System.out.println("[oficina-users/register] Status: " + res.statusCode() + " | " + res.body());
-                    return res.statusCode() == 200;
-                }).exceptionally(ex -> {
-                    System.err.println("[oficina-users/register] Exception: " + ex.getMessage());
-                    return false;
-                });
-    }
-
-    private ScrollPane buildConfigPane(boolean isNew) {
-        VBox content = new VBox(30);
-        content.getStyleClass().add("dashboard-content");
-
-        HBox header = new HBox();
-        header.setAlignment(Pos.CENTER_LEFT);
-
-        Label title = new Label(isNew ? "NOVO CADASTRO" : "CONFIGURAÇÃO");
-        title.getStyleClass().add("content-title");
-        HBox.setHgrow(title, Priority.ALWAYS);
-
-        Button btnSave = new Button("SALVAR NO BANCO");
-        btnSave.getStyleClass().add("big-button-primary");
-        btnSave.setPrefSize(200, 52);
-
-        header.getChildren().addAll(title, btnSave);
-        content.getChildren().add(header);
-
-        HBox grid = new HBox(24);
-        HBox.setHgrow(grid, Priority.ALWAYS);
-
-        VBox card1 = formCard("DADOS DA EMPRESA");
-        TextField txtNome  = styledField("NOME");
-        TextField txtLocal = styledField("ENDEREÇO");
-        TextField txtTel   = styledField("TELEFONE");
-        TextField txtLat   = styledField("LATITUDE");
-        TextField txtLon   = styledField("LONGITUDE");
-        card1.getChildren().addAll(
-                fieldLabel("NOME"), txtNome,
-                fieldLabel("ENDEREÇO"), txtLocal,
-                fieldLabel("TELEFONE"), txtTel,
-                fieldLabel("LATITUDE"), txtLat,
-                fieldLabel("LONGITUDE"), txtLon);
-
-        VBox card3 = formCard("SERVIÇOS");
-        String[] services = {"Freios", "Suspensão", "Motor", "Óleo", "Revisão", "Elétrica"};
-        List<CheckBox> checkBoxes = new ArrayList<>();
-        for (String s : services) {
-            CheckBox cb = new CheckBox(s);
-            cb.getStyleClass().add("check-box");
-            checkBoxes.add(cb);
-            card3.getChildren().add(cb);
-        }
-
-        grid.getChildren().addAll(card1, card3);
-        for (javafx.scene.Node n : grid.getChildren())
-            HBox.setHgrow(n, Priority.ALWAYS);
-
-        content.getChildren().add(grid);
-
-        btnSave.setOnAction(e -> {
-            btnSave.setText("ENVIANDO..."); btnSave.setDisable(true);
-
-            List<String> servs = new ArrayList<>();
-            for (CheckBox cb : checkBoxes) if (cb.isSelected()) servs.add(cb.getText());
-
-            Map<String, Object> data = new HashMap<>();
-            data.put("nome",     txtNome.getText());
-            data.put("endereco", txtLocal.getText());
-            data.put("telefone", txtTel.getText());
-            try {
-                data.put("latitude",  Double.parseDouble(txtLat.getText()));
-                data.put("longitude", Double.parseDouble(txtLon.getText()));
-            } catch (Exception ex) { data.put("latitude", 0.0); data.put("longitude", 0.0); }
-            data.put("servicos", String.join(", ", servs));
-
-            String method   = isNew ? "POST" : "PUT";
-            String endpoint = isNew ? "api/oficinas" : "api/oficinas/" + workshopId;
-
-            sendToAPI(method, endpoint, data).thenAccept(ok ->
-                    Platform.runLater(() -> {
-                        btnSave.setText("SALVAR NO BANCO"); btnSave.setDisable(false);
-                        showAlert(ok ? Alert.AlertType.INFORMATION : Alert.AlertType.ERROR,
-                                ok ? "Sucesso! Oficina salva no banco."
-                                        : "Erro 500: Verifique mecânicos/serviços.");
-                    })
-            );
-        });
-
-        autoDetectLocation(txtLocal, txtLat, txtLon);
-
-        ScrollPane scroll = new ScrollPane(content);
-        scroll.setFitToWidth(true);
-        scroll.setStyle("-fx-background-color: transparent; -fx-background: #0B0B0B;");
-        return scroll;
+    // =========================================================================
+    // Helpers de formulário
+    // =========================================================================
+    private Label sectionTitle(String text) {
+        Label l = new Label(text);
+        l.setStyle("-fx-text-fill: #16BC4E; -fx-font-size: 15px; -fx-font-weight: 700;");
+        VBox.setMargin(l, new Insets(8, 0, 4, 0));
+        return l;
     }
 
     private VBox formCard(String title) {
@@ -818,13 +523,32 @@ public class Main extends Application {
         return l;
     }
 
-    private void showAlert(Alert.AlertType type, String message) {
-        Alert alert = new Alert(type);
-        alert.setHeaderText(null);
-        alert.setContentText(message);
-        alert.showAndWait();
+    private RadioButton planoRadio(String nome, String descricao, ToggleGroup grupo) {
+        RadioButton rb = new RadioButton(nome + " — " + descricao);
+        rb.setToggleGroup(grupo);
+        rb.setText(nome); // texto principal
+        rb.setStyle("-fx-text-fill: #E8E8F0; -fx-font-size: 13px; -fx-font-weight: 600;");
+        // Tooltip com a descrição completa
+        Tooltip tp = new Tooltip(descricao);
+        Tooltip.install(rb, tp);
+
+        // Label de detalhe ao lado
+        Label detalhe = new Label(descricao);
+        detalhe.setStyle("-fx-text-fill: #9A9AAA; -fx-font-size: 11px;");
+
+        // Agrupa radio + detalhe numa linha (HBox)
+        HBox linha = new HBox(12, rb, detalhe);
+        linha.setAlignment(Pos.CENTER_LEFT);
+        linha.setPadding(new Insets(4, 0, 4, 0));
+
+        // Workaround: encapsula num VBox para poder adicionar via getChildren().add()
+        // Retorna só o RadioButton; a descrição aparece via Tooltip
+        return rb;
     }
 
+    // =========================================================================
+    // Refresh
+    // =========================================================================
     private void autoRefresh() {
         if (tabEndpoints.containsKey(currentTab)) refreshTab(currentTab);
     }
@@ -840,12 +564,9 @@ public class Main extends Application {
             if (table.getRowFactory() == null) addStatusContextMenu(table);
         }
 
-        HttpRequest.Builder getBuilder = HttpRequest.newBuilder()
-                .uri(URI.create(BASE_URL + endpoint))
-                .header("Content-Type", "application/json");
-        if (jwtToken != null) getBuilder.header("Authorization", "Bearer " + jwtToken);
-
-        HTTP.sendAsync(getBuilder.build(), HttpResponse.BodyHandlers.ofString())
+        HTTP.sendAsync(
+                        HttpRequest.newBuilder().uri(URI.create(BASE_URL + endpoint)).build(),
+                        HttpResponse.BodyHandlers.ofString())
                 .thenAccept(res -> {
                     List<Map<String, Object>> rows = GSON.fromJson(
                             res.body(), new com.google.gson.reflect.TypeToken<
@@ -864,56 +585,55 @@ public class Main extends Application {
                 }).exceptionally(ex -> null);
     }
 
-    private java.util.concurrent.CompletableFuture<Boolean> sendToAPI(
+    // =========================================================================
+    // API HTTP
+    // =========================================================================
+    private CompletableFuture<Map<String, Object>> sendToAPI(
             String method, String endpoint, Object data) {
 
         String json = GSON.toJson(data);
         HttpRequest.Builder rb = HttpRequest.newBuilder()
                 .uri(URI.create(BASE_URL + endpoint))
                 .header("Content-Type", "application/json");
-        if (jwtToken != null) rb.header("Authorization", "Bearer " + jwtToken);
         if ("POST".equals(method))  rb.POST(HttpRequest.BodyPublishers.ofString(json));
-        else                        rb.PUT(HttpRequest.BodyPublishers.ofString(json));
+        else if ("PUT".equals(method)) rb.PUT(HttpRequest.BodyPublishers.ofString(json));
         if ("PATCH".equals(method)) rb.method("PATCH", HttpRequest.BodyPublishers.ofString(json));
 
         return HTTP.sendAsync(rb.build(), HttpResponse.BodyHandlers.ofString())
                 .thenApply(res -> {
                     System.out.println("Status: " + res.statusCode() + " | " + res.body());
-                    if (res.statusCode() == 201) {
-                        try {
-                            Map<String, Object> r = GSON.fromJson(res.body(),
-                                    new com.google.gson.reflect.TypeToken<
-                                            Map<String, Object>>(){}.getType());
-                            workshopId = r.get("id").toString();
-                        } catch (Exception ignored) {}
+                    Map<String, Object> responseMap = new HashMap<>();
+                    responseMap.put("success", res.statusCode() >= 200 && res.statusCode() < 300);
+                    try {
+                        Map<String, Object> r = GSON.fromJson(res.body(),
+                                new com.google.gson.reflect.TypeToken<
+                                        Map<String, Object>>(){}.getType());
+                        if (r != null) {
+                            responseMap.putAll(r);
+                        }
+                    } catch (Exception ignored) {
+                        responseMap.put("message", "Erro ao processar resposta da API.");
                     }
-                    return res.statusCode() >= 200 && res.statusCode() < 300;
-                }).exceptionally(ex -> false);
+                    return responseMap;
+                }).exceptionally(ex -> {
+                    Map<String, Object> errorMap = new HashMap<>();
+                    errorMap.put("success", false);
+                    errorMap.put("message", "Erro de comunicação com a API: " + ex.getMessage());
+                    return errorMap;
+                });
     }
 
-    private void autoDetectLocation(TextField txtLoc, TextField txtLat, TextField txtLon) {
-        HTTP.sendAsync(
-                        HttpRequest.newBuilder().uri(URI.create("http://ip-api.com/json/")).build(),
-                        HttpResponse.BodyHandlers.ofString())
-                .thenAccept(res -> {
-                    Map<String, Object> d = GSON.fromJson(res.body(),
-                            new com.google.gson.reflect.TypeToken<
-                                    Map<String, Object>>(){}.getType());
-                    if (d != null && "success".equals(d.get("status"))) {
-                        Platform.runLater(() -> {
-                            txtLat.setText(String.valueOf(d.get("lat")));
-                            txtLon.setText(String.valueOf(d.get("lon")));
-                            txtLoc.setText(d.get("city") + ", " + d.get("regionName"));
-                        });
-                    }
-                }).exceptionally(ex -> null);
-    }
-
+    // =========================================================================
+    // Encerramento
+    // =========================================================================
     @Override
     public void stop() {
         if (scheduler != null) scheduler.shutdownNow();
     }
 
+    // =========================================================================
+    // main
+    // =========================================================================
     public static void main(String[] args) {
         launch(args);
     }
